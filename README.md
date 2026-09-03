@@ -7,6 +7,16 @@ materiales a preparar. La **base de datos es un Google Sheet** publicado como CS
 - Datos: Google Sheet ▸ pestaña `PLANNING` ▸ *Publicar en la web* como CSV.
 - Hosting: Netlify (deploy automático desde este repo de GitHub).
 
+## Dos versiones en este repo
+
+| Carpeta | Versión | Hosting | Sheet | Cuándo usarla |
+|---|---|---|---|---|
+| `/` (raíz) | Sitio estático | Netlify | Publicado como CSV (lectura pública) | Quieres dominio propio / GitHub + Netlify |
+| `apps-script/` | Google Apps Script | Google (link del Web App) | Privado | Prefieres que el Sheet **no** sea público |
+
+Ambas muestran las mismas vistas (Oficina / Merch / Almacén). Elige una; no necesitas las dos.
+Los pasos de la versión Apps Script están en `apps-script/INSTRUCCIONES.md`.
+
 ---
 
 ## 1) Preparar el Google Sheet
