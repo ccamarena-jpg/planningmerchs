@@ -142,11 +142,11 @@ function setup(){
   if(!s.getSheetByName('USERS')){
     var u=s.insertSheet('USERS'); u.getRange(1,1,1,4).setValues([['Email','Password','Rol','Nombre']]).setFontWeight('bold').setBackground('#5b6472').setFontColor('#fff');
     u.getRange(2,1,7,4).setValues([
-      ['rcarrera@ttaudit.com','123456','merch','rcarrera'],
-      ['jdelacruz@ttaudit.com','123456','merch','jdelacruz'],
-      ['jjaramillo@ttaudit.com','123456','merch','jjaramillo'],
-      ['srubattini@ttaudit.com','123456','merch','srubattini'],
-      ['jbalcazar@ttaudit.com','123456','merch','jbalcazar'],
+      ['rcarrera@ttaudit.com','123456','merch','Ronald Carrera'],
+      ['jdelacruz@ttaudit.com','123456','merch','Jorge de La Cruz'],
+      ['jjaramillo@ttaudit.com','123456','merch','Josue Jaramillo'],
+      ['srubattini@ttaudit.com','123456','merch','Sergio Rubattini'],
+      ['jbalcazar@ttaudit.com','123456','merch','Jeanfranco Balcazar'],
       ['pamela@ttaudit.com','123456','almacen','Pamela'],
       ['oficina@ttaudit.com','123456','oficina','Oficina']
     ]); u.setFrozenRows(1); u.setColumnWidths(1,4,180);
