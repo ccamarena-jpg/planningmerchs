@@ -30,7 +30,16 @@ function doGet(e){
   }catch(err){ return json({ ok:false, error:String(err) }); }
 }
 
+function getUsers(){
+  var u = SS().getSheetByName('USERS');
+  if(!u || u.getLastRow()<2) return [];
+  return u.getRange(2,1,u.getLastRow()-1,4).getValues().map(function(r){
+    return { email:String(r[0]).trim(), password:String(r[1]).trim(), rol:String(r[2]).trim().toLowerCase(), nombre:String(r[3]).trim() };
+  }).filter(function(x){return x.email;});
+}
 function getMerchs(){
+  var us = getUsers().filter(function(u){return u.rol==='merch';}).map(function(u){return u.nombre||u.email;});
+  if(us.length) return us;
   var m = SS().getSheetByName('MERCHS');
   if(!m || m.getLastRow()<2) return [];
   return m.getRange(2,1,m.getLastRow()-1,1).getValues().map(function(r){return String(r[0]).trim();}).filter(String);
@@ -70,6 +79,19 @@ function doPost(e){
     if(a==='delete'){ if(+p.row>1) sh.deleteRow(+p.row); return json({ok:true}); }
     if(a==='addMerch'){ var nm=String(p.nombre||'').trim(); if(nm){ ensureSheet('MERCHS',['Nombre']).appendRow([nm]); } return json({ok:true}); }
     if(a==='addMaterial'){ var n=String(p.name||'').trim(); if(n){ ensureSheet('MATERIALES',['Material','Unidad']).appendRow([n,String(p.unit||'').trim()]); } return json({ok:true}); }
+    if(a==='login'){
+      var em=String(p.email||'').trim().toLowerCase(), pw=String(p.password||'');
+      var u=getUsers().filter(function(x){return x.email.toLowerCase()===em;})[0];
+      if(u && String(u.password)===pw) return json({ok:true, user:{email:u.email, rol:u.rol, nombre:u.nombre||u.email}});
+      return json({ok:false, error:'Correo o contraseña incorrectos'});
+    }
+    if(a==='setUsers'){
+      var us2=ensureSheet('USERS',['Email','Password','Rol','Nombre']);
+      var last=us2.getLastRow(); if(last>1) us2.getRange(2,1,last-1,4).clearContent();
+      var rows=(p.users||[]).map(function(x){return [x.email,x.password,x.rol,x.nombre||''];});
+      if(rows.length) us2.getRange(2,1,rows.length,4).setValues(rows);
+      return json({ok:true, count:rows.length});
+    }
     return json({ok:false, error:'accion desconocida: '+a});
   }catch(err){ return json({ ok:false, error:String(err) }); }
 }
@@ -117,5 +139,17 @@ function setup(){
       ['Dispenser exhibidor','unidad'],['Afiche A3','unidad'],['Jala vista','unidad'],['Luminaria LED','unidad'],['Cable mellizo','metro'],
       ['Masking tape','rollo'],['Base acrílica','unidad'],['Silicona líquida','tubo'],['Paños de limpieza','unidad']]); mat.setFrozenRows(1);
   }
-  return 'Listo (con columna Almacén y API de escritura).';
+  if(!s.getSheetByName('USERS')){
+    var u=s.insertSheet('USERS'); u.getRange(1,1,1,4).setValues([['Email','Password','Rol','Nombre']]).setFontWeight('bold').setBackground('#5b6472').setFontColor('#fff');
+    u.getRange(2,1,7,4).setValues([
+      ['rcarrera@ttaudit.com','123456','merch','rcarrera'],
+      ['jdelacruz@ttaudit.com','123456','merch','jdelacruz'],
+      ['jjaramillo@ttaudit.com','123456','merch','jjaramillo'],
+      ['srubattini@ttaudit.com','123456','merch','srubattini'],
+      ['jbalcazar@ttaudit.com','123456','merch','jbalcazar'],
+      ['pamela@ttaudit.com','123456','almacen','Pamela'],
+      ['oficina@ttaudit.com','123456','oficina','Oficina']
+    ]); u.setFrozenRows(1); u.setColumnWidths(1,4,180);
+  }
+  return 'Listo (con USERS, columna Almacén y API de escritura/login).';
 }
