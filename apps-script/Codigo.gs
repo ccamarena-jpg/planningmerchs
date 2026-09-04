@@ -14,6 +14,7 @@ const HEADERS  = ['Fecha','Merch','Cadena','PDV','Dirección','Hora','Descripci�
 const CADENAS  = ['TAMBO','OXXO','REPSOL','PRIMAX','Otro'];
 const ESTADOS  = ['Pendiente','En camino','Completada'];
 const ALMACEN  = ['Por preparar','Preparado','Entregado'];
+const STORE_HEADERS = ['Id Store','Canal','Cadena','Nombre del POS','Dirección','Latitud','Longitud','Ciudad','Departamento','Modelo de cigarrera','Cantidad','Dispenser'];
 
 function SS(){ return SHEET_ID ? SpreadsheetApp.openById(SHEET_ID) : SpreadsheetApp.getActiveSpreadsheet(); }
 function TZ(){ return SS().getSpreadsheetTimeZone() || 'America/Lima'; }
@@ -26,7 +27,7 @@ function doGet(e){
   try{
     var p = (e && e.parameter) || {};
     return json({ ok:true, today:todayStr(), chains:CADENAS, estados:ESTADOS, almacenStates:ALMACEN,
-      merchs:getMerchs(), materials:getMaterials(), rows:getRows(p.date||'') });
+      merchs:getMerchs(), materials:getMaterials(), stores:getStores(), rows:getRows(p.date||'') });
   }catch(err){ return json({ ok:false, error:String(err) }); }
 }
 
@@ -49,6 +50,18 @@ function getMaterials(){
   if(!m || m.getLastRow()<2) return [];
   return m.getRange(2,1,m.getLastRow()-1,2).getValues()
     .map(function(r){return {name:String(r[0]).trim(),unit:String(r[1]||'').trim()};}).filter(function(x){return x.name;});
+}
+function getStores(){
+  var t = SS().getSheetByName('TIENDAS');
+  if(!t || t.getLastRow()<2) return [];
+  return t.getRange(2,1,t.getLastRow()-1,STORE_HEADERS.length).getValues().map(function(r){
+    return { id:String(r[0]||'').trim(), canal:String(r[1]||'').trim(), cadena:String(r[2]||'').trim(), pos:String(r[3]||'').trim(),
+      direccion:String(r[4]||'').trim(), lat:String(r[5]||'').trim(), lng:String(r[6]||'').trim(), ciudad:String(r[7]||'').trim(),
+      departamento:String(r[8]||'').trim(), modelo:String(r[9]||'').trim(), cantidad:String(r[10]||'').trim(), dispenser:String(r[11]||'').trim() };
+  }).filter(function(x){return x.id||x.pos;});
+}
+function storeRow(p){
+  return [ p.id||'', p.canal||'', p.cadena||'', p.pos||'', p.direccion||'', p.lat||'', p.lng||'', p.ciudad||'', p.departamento||'', p.modelo||'', p.cantidad||'', p.dispenser||'' ];
 }
 function getRows(dateStr){
   var p = plan(); if(!p || p.getLastRow()<2) return [];
@@ -79,6 +92,14 @@ function doPost(e){
     if(a==='delete'){ if(+p.row>1) sh.deleteRow(+p.row); return json({ok:true}); }
     if(a==='addMerch'){ var nm=String(p.nombre||'').trim(); if(nm){ ensureSheet('MERCHS',['Nombre']).appendRow([nm]); } return json({ok:true}); }
     if(a==='addMaterial'){ var n=String(p.name||'').trim(); if(n){ ensureSheet('MATERIALES',['Material','Unidad']).appendRow([n,String(p.unit||'').trim()]); } return json({ok:true}); }
+    if(a==='setStores'){
+      var st=ensureSheet('TIENDAS',STORE_HEADERS);
+      var last=st.getLastRow(); if(last>1) st.getRange(2,1,last-1,STORE_HEADERS.length).clearContent();
+      var rows=(p.stores||[]).map(storeRow);
+      if(rows.length) st.getRange(2,1,rows.length,STORE_HEADERS.length).setValues(rows);
+      return json({ok:true, count:rows.length});
+    }
+    if(a==='addStore'){ ensureSheet('TIENDAS',STORE_HEADERS).appendRow(storeRow(p)); return json({ok:true}); }
     if(a==='login'){
       var em=String(p.email||'').trim().toLowerCase(), pw=String(p.password||'');
       var u=getUsers().filter(function(x){return x.email.toLowerCase()===em;})[0];
@@ -138,6 +159,11 @@ function setup(){
     mat.getRange(2,1,12,2).setValues([['Transformador eléctrico','unidad'],['Cinta doble contacto','rollo'],['Cinta de embalaje','rollo'],
       ['Dispenser exhibidor','unidad'],['Afiche A3','unidad'],['Jala vista','unidad'],['Luminaria LED','unidad'],['Cable mellizo','metro'],
       ['Masking tape','rollo'],['Base acrílica','unidad'],['Silicona líquida','tubo'],['Paños de limpieza','unidad']]); mat.setFrozenRows(1);
+  }
+  if(!s.getSheetByName('TIENDAS')){
+    var t=s.insertSheet('TIENDAS'); t.getRange(1,1,1,STORE_HEADERS.length).setValues([STORE_HEADERS]).setFontWeight('bold').setBackground('#0f9d8f').setFontColor('#fff');
+    t.getRange(2,1,1,STORE_HEADERS.length).setValues([['TT-0001','Tradicional','TAMBO','Tambo Av. Larco','Av. Larco 345, Miraflores','-12.1219','-77.0297','Lima','Lima','Cigarrera 4 niveles','1','Sí']]);
+    t.setFrozenRows(1); t.setColumnWidths(1,STORE_HEADERS.length,130);
   }
   if(!s.getSheetByName('USERS')){
     var u=s.insertSheet('USERS'); u.getRange(1,1,1,4).setValues([['Email','Password','Rol','Nombre']]).setFontWeight('bold').setBackground('#5b6472').setFontColor('#fff');

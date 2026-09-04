@@ -126,7 +126,7 @@ var ROLE={oficina:{lbl:'Oficina',accent:'--brand',weak:'--brand-weak',ink:'--bra
   merch:{lbl:'Mi ruta',accent:'--teal',weak:'--teal-weak',ink:'--teal-ink'},
   almacen:{lbl:'Materiales',accent:'--amber',weak:'--amber-weak',ink:'--amber-ink'}};
 var S={session:null,loginErr:'',loginBusy:false,role:'oficina',view:'planning',whView:'merch',merch:'',date:'',
-  rows:[],merchs:[],materials:[],chains:CH,loading:true,error:'',modal:null,imp:null};
+  rows:[],merchs:[],materials:[],stores:[],chains:CH,loading:true,error:'',modal:null,imp:null,impStores:null};
 var SESS_KEY='rutamerch_sess';
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -139,6 +139,7 @@ function whCls(w){w=norm(w);return w.indexOf('entreg')>=0?'2':w.indexOf('prepar'
 function chBadge(c){return '<span class="chain '+(CH.indexOf(c)>=0?c:'')+'">'+esc(c||'PDV')+'</span>';}
 function parseMats(str){if(!str)return[];return String(str).split(/[;\n]+/).map(function(s){return s.trim();}).filter(Boolean).map(function(p){var m=p.match(/^(.*?)\s*[x×]\s*(\d+)\s*$/i);return m?{name:m[1].trim(),qty:parseInt(m[2])||1}:{name:p,qty:1};});}
 function serMats(a){return (a||[]).map(function(m){return m.name+' x'+m.qty;}).join('; ');}
+function storeLabel(s){return s.pos+(s.id?' · '+s.id:'')+(s.ciudad?' · '+s.ciudad:'');}
 function matChips(str){var ms=parseMats(str);if(!ms.length)return '<div class="mat-list"><span style="font-size:12.5px;color:var(--faint)">Sin materiales</span></div>';return '<div class="mat-list">'+ms.map(function(m){return '<span class="mat"><b>'+esc(m.qty)+'</b> '+esc(m.name)+'</span>';}).join('')+'</div>';}
 function routeSort(a,b){return (a.hora||'99:99').localeCompare(b.hora||'99:99');}
 function toast(m){var t=document.querySelector('.toast');if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t);}t.textContent=m;requestAnimationFrame(function(){t.classList.add('show');});clearTimeout(t._h);t._h=setTimeout(function(){t.classList.remove('show');},2400);}
@@ -151,7 +152,7 @@ function load(){
   apiGet().then(function(d){
     if(!d||!d.ok){S.error=(d&&d.error)||'sin datos';S.loading=false;return render();}
     if(!S.date)S.date=d.today;
-    S.rows=d.rows||[];S.merchs=d.merchs||[];S.materials=d.materials||[];S.chains=d.chains||CH;
+    S.rows=d.rows||[];S.merchs=d.merchs||[];S.materials=d.materials||[];S.stores=d.stores||[];S.chains=d.chains||CH;
     if(!S.merch&&S.merchs.length)S.merch=S.merchs[0];
     S.loading=false;render();
   }).catch(function(e){S.error='conexion';S.loading=false;render();});
@@ -201,7 +202,7 @@ function subbar(){
   var date='<span class="pick"><label>Día</label><input type="date" value="'+S.date+'" data-a="date"></span>';
   var ofc='';
   if(S.role==='oficina'){ofc='<div class="seg">'+
-    ['planning','avance','importar','datos'].map(function(v){var L={planning:'Planning',avance:'Avance',importar:'Importar',datos:'Datos'}[v];return '<button class="'+(S.view===v?'on':'')+'" data-a="ofctab" data-v="'+v+'">'+L+'</button>';}).join('')+'</div>';}
+    ['planning','avance','tiendas','importar','datos'].map(function(v){var L={planning:'Planning',avance:'Avance',tiendas:'Tiendas',importar:'Importar',datos:'Datos'}[v];return '<button class="'+(S.view===v?'on':'')+'" data-a="ofctab" data-v="'+v+'">'+L+'</button>';}).join('')+'</div>';}
   var showDate=(S.role!=='oficina'||['planning','avance'].indexOf(S.view)>=0);
   return '<div class="subbar">'+ofc+(showDate?date:'')+
     (S.role==='oficina'&&S.view==='planning'?'<button class="btn primary sm push" data-a="newtask">＋ Tarea</button>':'')+'</div>';
@@ -213,6 +214,7 @@ function bodyHtml(){
   if(S.role==='merch')return viewMerch();
   if(S.role==='almacen')return viewAlmacen();
   if(S.view==='avance')return viewAvance();
+  if(S.view==='tiendas')return viewTiendas();
   if(S.view==='importar')return viewImport();
   if(S.view==='datos')return viewDatos();
   return viewPlanning();
@@ -293,6 +295,62 @@ function viewDatos(){
     '<div class="hint">Estos datos viven en las pestañas MERCHS y MATERIALES de tu Sheet. Aquí los agregas sin salir de la app.</div>';
 }
 
+/* ---------- OFICINA: TIENDAS ---------- */
+function viewTiendas(){
+  var im=S.impStores;
+  var stats='<div class="stat-row" style="grid-template-columns:1fr 1fr"><div class="stat accent"><div class="n tnum">'+S.stores.length+'</div><div class="l">Tiendas / POS</div></div>'+
+    '<div class="stat"><div class="n tnum">'+new Set(S.stores.map(function(s){return s.cadena;}).filter(Boolean)).size+'</div><div class="l">Cadenas</div></div></div>';
+  var loader='<div class="card pad" style="margin-bottom:16px"><div class="nm" style="font-size:15px;margin-bottom:3px">Cargar base de tiendas</div>'+
+    '<div style="font-size:12px;color:var(--faint);margin-bottom:12px">Columnas: <b style="color:var(--muted)">Id Store, Canal, Cadena, Nombre del POS, Dirección, Latitud, Longitud, Ciudad, Departamento, Modelo de cigarrera, Cantidad, Dispenser</b></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" data-a="tplStores">⬇ Plantilla</button>'+
+    '<span class="btn primary sm filebtn">📄 Subir Excel<input type="file" accept=".xlsx,.xls,.csv" data-a="impStores"></span></div>'+
+    (im&&im.rows?'<div class="imp-preview">Se cargarán <b>'+im.rows.length+'</b> tienda(s) — <b>reemplaza</b> la base actual.'+(im.skipped?' <span style="color:var(--amber-ink)">('+im.skipped+' omitidas)</span>':'')+
+      '<div style="margin-top:10px"><button class="btn primary sm" data-a="impStoresOk">Confirmar carga</button> <button class="btn ghost sm" data-a="impStoresCancel">Cancelar</button></div></div>':'')+
+    (im&&im.error?'<div class="banner" style="margin-top:12px;background:var(--red-weak);color:var(--red)">'+esc(im.error)+'</div>':'')+'</div>';
+  if(!S.stores.length)return stats+loader+empty('🏪','Sin tiendas cargadas','Descarga la plantilla, llénala con tus POS y súbela. Luego podrás elegir la tienda al crear tareas.');
+  var list=S.stores.slice(0,400).map(storeCard).join('');
+  return stats+loader+'<div class="sech">Base de tiendas'+(S.stores.length>400?' (mostrando 400 de '+S.stores.length+')':'')+'</div>'+list;
+}
+function storeCard(s){
+  var maps=(s.lat&&s.lng)?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.lat+','+s.lng):(s.direccion?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.direccion):null);
+  return '<div class="task card" style="margin-bottom:9px"><div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:4px">'+
+    (s.cadena?chBadge(s.cadena):'')+(s.canal?'<span class="chain">'+esc(s.canal)+'</span>':'')+(s.id?'<span class="time-chip">'+esc(s.id)+'</span>':'')+'</div>'+
+    '<div class="pdv">'+esc(s.pos||'(sin nombre)')+'</div>'+
+    (s.direccion?'<div class="addr">📍 '+esc(s.direccion)+(maps?' · <a href="'+maps+'" target="_blank" rel="noopener">Mapa</a>':'')+'</div>':'')+
+    '<div class="mini" style="flex-wrap:wrap"><span>'+esc([s.ciudad,s.departamento].filter(Boolean).join(', ')||'—')+'</span>'+
+    (s.modelo?'<span><b>Cigarrera:</b> '+esc(s.modelo)+(s.cantidad?' ×'+esc(s.cantidad):'')+'</span>':'')+
+    (s.dispenser?'<span><b>Dispenser:</b> '+esc(s.dispenser)+'</span>':'')+'</div></div>';
+}
+function onImpStores(e){
+  var file=e.target.files&&e.target.files[0];if(!file)return;
+  var rd=new FileReader();
+  rd.onload=function(ev){try{
+    var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+    var rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+    var out=[],skip=0;
+    rows.forEach(function(r){
+      var pick=function(keys){for(var k in r){if(keys.indexOf(norm(k))>=0)return r[k];}return '';};
+      var id=String(pick(['id store','idstore','id','codigo','codigo tt audit','cod'])).trim();
+      var pos=String(pick(['nombre del pos','pos','nombre','tienda'])).trim();
+      if(!id&&!pos){skip++;return;}
+      out.push({id:id,canal:String(pick(['canal'])||'').trim(),cadena:String(pick(['cadena'])||'').trim().toUpperCase(),pos:pos,
+        direccion:String(pick(['direccion'])||'').trim(),lat:String(pick(['latitud','lat'])||'').trim(),lng:String(pick(['longitud','long','lng'])||'').trim(),
+        ciudad:String(pick(['ciudad'])||'').trim(),departamento:String(pick(['departamento','depto'])||'').trim(),
+        modelo:String(pick(['modelo de cigarrera','modelo','cigarrera'])||'').trim(),cantidad:String(pick(['cantidad','cant'])||'').trim(),dispenser:String(pick(['dispenser'])||'').trim()});
+    });
+    if(!out.length)S.impStores={error:'No se encontraron tiendas. Revisa las columnas contra la plantilla.'};
+    else S.impStores={rows:out,skipped:skip};
+    render();
+  }catch(err){S.impStores={error:'No se pudo leer el archivo.'};render();}};
+  rd.readAsArrayBuffer(file);e.target.value='';
+}
+function doImportStores(){var im=S.impStores;if(!im||!im.rows)return;var rows=im.rows;S.impStores=null;mutate({action:'setStores',stores:rows},rows.length+' tiendas cargadas');}
+function downloadTplStores(){
+  var ws=XLSX.utils.aoa_to_sheet([['Id Store','Canal','Cadena','Nombre del POS','Dirección','Latitud','Longitud','Ciudad','Departamento','Modelo de cigarrera','Cantidad','Dispenser'],
+    ['TT-0001','Tradicional','TAMBO','Tambo Av. Larco','Av. Larco 345, Miraflores','-12.1219','-77.0297','Lima','Lima','Cigarrera 4 niveles','1','Sí']]);
+  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Tiendas');XLSX.writeFile(wb,'plantilla_tiendas.xlsx');
+}
+
 /* ---------- MERCH ---------- */
 function viewMerch(){
   if(!S.merch)return empty('👤','Elige tu nombre','Selecciona tu nombre arriba para ver tu ruta.');
@@ -356,8 +414,10 @@ function modalTask(m){
   var merchOpts=S.merchs.map(function(n){return '<option'+(d.merch===n?' selected':'')+'>'+esc(n)+'</option>';}).join('');
   var chOpts=CH.map(function(c){return '<option'+(d.cadena===c?' selected':'')+'>'+c+'</option>';}).join('');
   var catOpts=S.materials.map(function(x){return '<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>';}).join('');
+  var storeOpts=S.stores.map(function(s){return '<option value="'+esc(storeLabel(s))+'">';}).join('');
+  var storeField=S.stores.length?'<div class="field"><label>Tienda (de la base)</label><input id="storeInput" list="storesDL" autocomplete="off" placeholder="Buscar por POS, código o ciudad…"><datalist id="storesDL">'+storeOpts+'</datalist></div>':'';
   var dm=(d.mats||[]).map(function(x,i){return '<div class="draftmat"><span class="q">'+esc(x.qty)+'</span><div style="flex:1"><b style="font-family:var(--fdisp)">'+esc(x.name)+'</b></div><button class="x" data-a="rmmat" data-i="'+i+'">×</button></div>';}).join('');
-  return '<div class="overlay" data-a="ov"><div class="sheet" data-stop>'+head(m.row?'Editar tarea':'Nueva tarea')+'<form data-a="savetask">'+
+  return '<div class="overlay" data-a="ov"><div class="sheet" data-stop>'+head(m.row?'Editar tarea':'Nueva tarea')+'<form data-a="savetask">'+storeField+
     '<div class="row2"><div class="field"><label>Merch</label><select name="merch" required><option value="">Elegir…</option>'+merchOpts+'</select></div>'+
     '<div class="field"><label>Hora</label><input name="hora" type="time" value="'+esc(d.hora||'')+'"></div></div>'+
     '<div class="row2"><div class="field"><label>Cadena</label><select name="cadena">'+chOpts+'</select></div>'+
@@ -380,6 +440,8 @@ function wire(){
   f=q('[data-a="savemerch"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var v=e.target.nombre.value.trim();if(v)mutate({action:'addMerch',nombre:v},'Merch agregado');closeM();});
   f=q('[data-a="savemat"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var n=e.target.name.value.trim();if(n)mutate({action:'addMaterial',name:n,unit:e.target.unit.value.trim()},'Material agregado');closeM();});
   var im=q('[data-a="impfile"]');if(im)im.addEventListener('change',onImp);
+  var ist=q('[data-a="impStores"]');if(ist)ist.addEventListener('change',onImpStores);
+  var si=q('#storeInput');if(si)si.addEventListener('change',onStorePick);
   qa('[data-a="date"]').forEach(function(i){i.addEventListener('change',function(e){S.date=e.target.value;load();});});
   var ms=q('[data-a="merchsel"]');if(ms)ms.addEventListener('change',function(e){S.merch=e.target.value;render();});
   app.onclick=click;
@@ -392,7 +454,10 @@ function click(e){
   if(a==='reload'){load();}
   else if(a==='logout'){logout();}
   else if(a==='role'){S.role=t.dataset.v;render();}
-  else if(a==='ofctab'){S.view=t.dataset.v;S.imp=null;render();}
+  else if(a==='ofctab'){S.view=t.dataset.v;S.imp=null;S.impStores=null;render();}
+  else if(a==='tplStores'){downloadTplStores();}
+  else if(a==='impStoresOk'){doImportStores();}
+  else if(a==='impStoresCancel'){S.impStores=null;render();}
   else if(a==='whtab'){S.whView=t.dataset.v;render();}
   else if(a==='newtask'){S.modal={type:'task',row:null,draft:{cadena:'TAMBO',mats:[]}};render();}
   else if(a==='edit'){var r=findRow(t.dataset.r);S.modal={type:'task',row:+t.dataset.r,draft:{merch:r.merch,cadena:r.cadena,pdv:r.pdv,direccion:r.direccion,hora:r.hora,descripcion:r.descripcion,mats:parseMats(r.materiales)}};render();}
@@ -411,6 +476,13 @@ function click(e){
 function findRow(r){return S.rows.filter(function(x){return x.row===+r;})[0]||{};}
 function closeM(){S.modal=null;render();}
 function captureTask(){var f=q('[data-a="savetask"]');if(!f)return;var d=S.modal.draft;d.merch=f.merch.value;d.hora=f.hora.value;d.cadena=f.cadena.value;d.pdv=f.pdv.value;d.direccion=f.direccion.value;d.descripcion=f.descripcion.value;}
+function onStorePick(e){
+  var val=e.target.value;var s=S.stores.filter(function(x){return storeLabel(x)===val;})[0];if(!s)return;
+  captureTask();var d=S.modal.draft;
+  d.pdv=s.pos||d.pdv; d.direccion=s.direccion||d.direccion;
+  if(s.cadena&&CH.indexOf(String(s.cadena).toUpperCase())>=0)d.cadena=String(s.cadena).toUpperCase();
+  render();
+}
 function addDraftMat(){var sel=document.getElementById('matSel'),qi=document.getElementById('matQty');if(!sel||!sel.value)return;captureTask();var nm=sel.value,qty=Math.max(1,parseInt(qi.value)||1);S.modal.draft.mats=S.modal.draft.mats||[];var ex=S.modal.draft.mats.filter(function(m){return m.name===nm;})[0];if(ex)ex.qty+=qty;else S.modal.draft.mats.push({name:nm,qty:qty});render();}
 function onSaveTask(e){
   e.preventDefault();var f=e.target;if(!f.merch.value){toast('Elige un merch');return;}
