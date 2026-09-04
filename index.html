@@ -122,6 +122,16 @@ var API='/api/exec';
 var app=document.getElementById('app');
 var CH=['TAMBO','OXXO','REPSOL','PRIMAX','Otro'];
 var WH=['Por preparar','Preparado','Entregado'];
+var ACTIVOS=['Cigarrera','Dispenser','Glorificador'];
+var TIPOS=['Instalación','Mantenimiento eléctrico','Mantenimiento de cigarrera','Cambio de cigarrera','Cambio de brazo hidráulico','Mantenimiento de dispenser','Cambio de dispenser','Cambio de placa','Cambio luz LED','Aterramiento','Retiro','Reubicación','Validación','Otros'];
+var TIPO_MATS={
+ 'Mantenimiento eléctrico':[{name:'Transformador eléctrico',qty:1},{name:'Luces LED',qty:2}],
+ 'Cambio de brazo hidráulico':[{name:'Brazo hidráulico',qty:1},{name:'Bisagra',qty:2}],
+ 'Cambio de placa':[{name:'Placas',qty:1}],
+ 'Instalación':[{name:'Parantes',qty:2},{name:'Tarugos',qty:4},{name:'Canaletas',qty:2}],
+ 'Cambio de dispenser':[{name:'Dispenser mesa',qty:1}],
+ 'Cambio luz LED':[{name:'Luces LED',qty:2}]
+};
 var ROLE={oficina:{lbl:'Oficina',accent:'--brand',weak:'--brand-weak',ink:'--brand-ink'},
   merch:{lbl:'Mi ruta',accent:'--teal',weak:'--teal-weak',ink:'--teal-ink'},
   almacen:{lbl:'Materiales',accent:'--amber',weak:'--amber-weak',ink:'--amber-ink'}};
@@ -137,6 +147,7 @@ function fmtDate(s){if(!s)return'';var a=s.split('-');var d=new Date(+a[0],+a[1]
 function stCls(e){e=norm(e);return e.indexOf('complet')>=0?'3':e.indexOf('camino')>=0?'2':'1';}
 function whCls(w){w=norm(w);return w.indexOf('entreg')>=0?'2':w.indexOf('prepar')>=0&&w.indexOf('por')<0?'1':'0';}
 function chBadge(c){return '<span class="chain '+(CH.indexOf(c)>=0?c:'')+'">'+esc(c||'PDV')+'</span>';}
+function metaChips(t){return (t.tipo?'<span class="chain" style="background:var(--brand-weak);color:var(--brand-ink)">'+esc(t.tipo)+'</span>':'')+(t.activo?'<span class="chain">'+esc(t.activo)+'</span>':'');}
 function parseMats(str){if(!str)return[];return String(str).split(/[;\n]+/).map(function(s){return s.trim();}).filter(Boolean).map(function(p){var m=p.match(/^(.*?)\s*[x×]\s*(\d+)\s*$/i);return m?{name:m[1].trim(),qty:parseInt(m[2])||1}:{name:p,qty:1};});}
 function serMats(a){return (a||[]).map(function(m){return m.name+' x'+m.qty;}).join('; ');}
 function storeLabel(s){return s.pos+(s.id?' · '+s.id:'')+(s.ciudad?' · '+s.ciudad:'');}
@@ -241,7 +252,7 @@ function viewPlanning(){
 }
 function ofcTask(t){
   return '<div class="task card s'+stCls(t.estado)+'"><div class="t-top"><div style="flex:1">'+
-    '<div style="display:flex;gap:7px;align-items:center;margin-bottom:5px;flex-wrap:wrap">'+chBadge(t.cadena)+(t.hora?'<span class="time-chip">🕒 '+esc(t.hora)+'</span>':'')+'<span class="badge st'+stCls(t.estado)+'">'+esc(t.estado)+'</span></div>'+
+    '<div style="display:flex;gap:7px;align-items:center;margin-bottom:5px;flex-wrap:wrap">'+chBadge(t.cadena)+metaChips(t)+(t.hora?'<span class="time-chip">🕒 '+esc(t.hora)+'</span>':'')+'<span class="badge st'+stCls(t.estado)+'">'+esc(t.estado)+'</span></div>'+
     '<div class="pdv">'+esc(t.pdv)+'</div>'+(t.direccion?'<div class="addr">📍 '+esc(t.direccion)+'</div>':'')+'</div></div>'+
     (t.descripcion?'<div class="desc">'+esc(t.descripcion)+'</div>':'')+matChips(t.materiales)+
     '<div class="t-actions"><button class="btn ghost sm" data-a="edit" data-r="'+t.row+'">Editar</button>'+
@@ -287,7 +298,7 @@ function viewImport(){
 /* ---------- OFICINA: DATOS ---------- */
 function viewDatos(){
   var usr=S.merchs.map(function(n){return '<div class="list-row"><div class="avatar">'+initials(n)+'</div><div style="flex:1"><div class="nm">'+esc(n)+'</div></div></div>';}).join('');
-  var mat=S.materials.map(function(m){return '<div class="list-row"><div style="flex:1"><div class="nm">'+esc(m.name)+'</div><div class="sub">'+esc(m.unit||'—')+'</div></div></div>';}).join('');
+  var mat=S.materials.map(function(m){return '<div class="list-row"><div class="qbox tnum" style="min-width:38px;font-size:14px;padding:4px 9px">'+esc(m.qty||1)+'</div><div style="flex:1"><div class="nm">'+esc(m.name)+'</div><div class="sub">'+esc(m.unit||'—')+'</div></div></div>';}).join('');
   return '<div style="display:flex;align-items:center;margin-bottom:10px"><div class="sech" style="margin:0">👤 Merch ('+S.merchs.length+')</div><button class="btn primary sm push" data-a="newmerch">＋ Merch</button></div>'+
     '<div class="card" style="margin-bottom:22px">'+(usr||'<div class="empty"><p>Sin merch aún.</p></div>')+'</div>'+
     '<div style="display:flex;align-items:center;margin-bottom:10px"><div class="sech" style="margin:0">📦 Materiales ('+S.materials.length+')</div><button class="btn primary sm push" data-a="newmat">＋ Material</button></div>'+
@@ -365,7 +376,7 @@ function merchTask(t,n){
   var st=stCls(t.estado);var next=st==='1'?'En camino':st==='2'?'Completada':null;
   var lbl=st==='1'?'▶ En camino':'✓ Completar';
   return '<div class="task card s'+st+'"><div class="t-top"><div class="avatar" style="background:var(--role-weak);color:var(--role-ink)">'+n+'</div><div style="flex:1">'+
-    '<div style="display:flex;gap:7px;align-items:center;margin-bottom:4px;flex-wrap:wrap">'+chBadge(t.cadena)+(t.hora?'<span class="time-chip">🕒 '+esc(t.hora)+'</span>':'')+'<span class="badge st'+st+'">'+esc(t.estado)+'</span></div>'+
+    '<div style="display:flex;gap:7px;align-items:center;margin-bottom:4px;flex-wrap:wrap">'+chBadge(t.cadena)+metaChips(t)+(t.hora?'<span class="time-chip">🕒 '+esc(t.hora)+'</span>':'')+'<span class="badge st'+st+'">'+esc(t.estado)+'</span></div>'+
     '<div class="pdv">'+esc(t.pdv)+'</div>'+(t.direccion?'<div class="addr">📍 '+esc(t.direccion)+(maps?' · <a href="'+maps+'" target="_blank" rel="noopener">Mapa</a>':'')+'</div>':'')+'</div></div>'+
     (t.descripcion?'<div class="desc">'+esc(t.descripcion)+'</div>':'')+
     '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-top:12px;font-family:var(--fdisp)">Materiales</div>'+matChips(t.materiales)+
@@ -406,13 +417,15 @@ function whByMerch(list){
 function modalHtml(){var m=S.modal;
   if(m.type==='task')return modalTask(m);
   if(m.type==='merch')return modalSimple('Agregar merch','merch',[{k:'nombre',l:'Nombre completo',ph:'Ana Torres'}]);
-  if(m.type==='mat')return modalSimple('Nuevo material','mat',[{k:'name',l:'Material',ph:'Transformador eléctrico'},{k:'unit',l:'Unidad',ph:'unidad, rollo, metro'}]);
+  if(m.type==='mat')return modalSimple('Nuevo material','mat',[{k:'name',l:'Material',ph:'Transformador eléctrico'},{k:'unit',l:'Unidad',ph:'unidad, rollo, metro'},{k:'qty',l:'Cantidad default',ph:'1'}]);
   return '';}
 function head(t){return '<div class="sheet-head"><h2>'+t+'</h2><button class="iconx push" data-a="closem">×</button></div>';}
 function modalTask(m){
   var d=m.draft;
   var merchOpts=S.merchs.map(function(n){return '<option'+(d.merch===n?' selected':'')+'>'+esc(n)+'</option>';}).join('');
   var chOpts=CH.map(function(c){return '<option'+(d.cadena===c?' selected':'')+'>'+c+'</option>';}).join('');
+  var activoOpts=ACTIVOS.map(function(x){return '<option'+(d.activo===x?' selected':'')+'>'+x+'</option>';}).join('');
+  var tipoOpts=TIPOS.map(function(x){return '<option'+(d.tipo===x?' selected':'')+'>'+x+'</option>';}).join('');
   var catOpts=S.materials.map(function(x){return '<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>';}).join('');
   var storeOpts=S.stores.map(function(s){return '<option value="'+esc(storeLabel(s))+'">';}).join('');
   var storeField=S.stores.length?'<div class="field"><label>Tienda (de la base)</label><input id="storeInput" list="storesDL" autocomplete="off" placeholder="Buscar por POS, código o ciudad…"><datalist id="storesDL">'+storeOpts+'</datalist></div>':'';
@@ -423,7 +436,9 @@ function modalTask(m){
     '<div class="row2"><div class="field"><label>Cadena</label><select name="cadena">'+chOpts+'</select></div>'+
     '<div class="field"><label>Tienda / PDV</label><input name="pdv" value="'+esc(d.pdv||'')+'" placeholder="Tambo Av. Larco" required></div></div>'+
     '<div class="field"><label>Dirección</label><input name="direccion" value="'+esc(d.direccion||'')+'" placeholder="Av. Larco 123, Miraflores"></div>'+
-    '<div class="field"><label>Descripción</label><textarea name="descripcion" placeholder="Instalar dispenser VUSE">'+esc(d.descripcion||'')+'</textarea></div>'+
+    '<div class="row2"><div class="field"><label>Activo</label><select name="activo"><option value="">—</option>'+activoOpts+'</select></div>'+
+    '<div class="field"><label>Tipo de tarea</label><select name="tipo" id="tipoSel"><option value="">—</option>'+tipoOpts+'</select></div></div>'+
+    '<div class="field"><label>Descripción / detalle</label><textarea name="descripcion" placeholder="Detalle (obligatorio si el tipo es Otros)">'+esc(d.descripcion||'')+'</textarea></div>'+
     '<label style="display:block;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;font-family:var(--fdisp)">Materiales</label>'+
     '<div class="matadd"><div><select id="matSel">'+(catOpts||'<option value="">Sin catálogo</option>')+'</select></div><div><input id="matQty" type="number" min="1" value="1"></div><button type="button" class="btn ghost" data-a="addmat">＋</button></div>'+
     '<div>'+dm+'</div><div style="height:16px"></div><button class="btn primary block" type="submit">'+(m.row?'Guardar cambios':'Crear tarea')+'</button></form></div></div>';
@@ -438,10 +453,12 @@ function wire(){
   var f;
   f=q('[data-a="savetask"]');if(f)f.addEventListener('submit',onSaveTask);
   f=q('[data-a="savemerch"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var v=e.target.nombre.value.trim();if(v)mutate({action:'addMerch',nombre:v},'Merch agregado');closeM();});
-  f=q('[data-a="savemat"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var n=e.target.name.value.trim();if(n)mutate({action:'addMaterial',name:n,unit:e.target.unit.value.trim()},'Material agregado');closeM();});
+  f=q('[data-a="savemat"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var n=e.target.name.value.trim();if(n)mutate({action:'addMaterial',name:n,unit:e.target.unit.value.trim(),qty:Number(e.target.qty.value)||1},'Material agregado');closeM();});
   var im=q('[data-a="impfile"]');if(im)im.addEventListener('change',onImp);
   var ist=q('[data-a="impStores"]');if(ist)ist.addEventListener('change',onImpStores);
   var si=q('#storeInput');if(si)si.addEventListener('change',onStorePick);
+  var tp=q('#tipoSel');if(tp)tp.addEventListener('change',onTipoChange);
+  var msel=q('#matSel');if(msel)msel.addEventListener('change',onMatSel);
   qa('[data-a="date"]').forEach(function(i){i.addEventListener('change',function(e){S.date=e.target.value;load();});});
   var ms=q('[data-a="merchsel"]');if(ms)ms.addEventListener('change',function(e){S.merch=e.target.value;render();});
   app.onclick=click;
@@ -475,7 +492,9 @@ function click(e){
 }
 function findRow(r){return S.rows.filter(function(x){return x.row===+r;})[0]||{};}
 function closeM(){S.modal=null;render();}
-function captureTask(){var f=q('[data-a="savetask"]');if(!f)return;var d=S.modal.draft;d.merch=f.merch.value;d.hora=f.hora.value;d.cadena=f.cadena.value;d.pdv=f.pdv.value;d.direccion=f.direccion.value;d.descripcion=f.descripcion.value;}
+function captureTask(){var f=q('[data-a="savetask"]');if(!f)return;var d=S.modal.draft;d.merch=f.merch.value;d.hora=f.hora.value;d.cadena=f.cadena.value;d.pdv=f.pdv.value;d.direccion=f.direccion.value;d.descripcion=f.descripcion.value;if(f.activo)d.activo=f.activo.value;if(f.tipo)d.tipo=f.tipo.value;}
+function onTipoChange(e){var tipo=e.target.value;captureTask();var d=S.modal.draft;d.tipo=tipo;var sug=TIPO_MATS[tipo];if(sug)d.mats=sug.map(function(m){return {name:m.name,qty:m.qty};});render();}
+function onMatSel(e){var m=S.materials.filter(function(x){return x.name===e.target.value;})[0];var qi=document.getElementById('matQty');if(m&&qi)qi.value=m.qty||1;}
 function onStorePick(e){
   var val=e.target.value;var s=S.stores.filter(function(x){return storeLabel(x)===val;})[0];if(!s)return;
   captureTask();var d=S.modal.draft;
@@ -487,7 +506,7 @@ function addDraftMat(){var sel=document.getElementById('matSel'),qi=document.get
 function onSaveTask(e){
   e.preventDefault();var f=e.target;if(!f.merch.value){toast('Elige un merch');return;}
   var payload={fecha:S.date,merch:f.merch.value,cadena:f.cadena.value,pdv:f.pdv.value.trim(),direccion:f.direccion.value.trim(),
-    hora:f.hora.value,descripcion:f.descripcion.value.trim(),materiales:serMats(S.modal.draft.mats)};
+    hora:f.hora.value,descripcion:f.descripcion.value.trim(),activo:f.activo.value,tipo:f.tipo.value,materiales:serMats(S.modal.draft.mats)};
   if(S.modal.row){payload.action='update';payload.row=S.modal.row;}else{payload.action='create';}
   closeM();mutate(payload,S.modal&&S.modal.row?'Tarea guardada':'Tarea creada');
 }

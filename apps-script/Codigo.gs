@@ -10,7 +10,7 @@
  */
 
 const SHEET_ID = '1-Veqcz2BN5EceTSKEG0XkOFumzDNKr1z0onaoocMSTc';
-const HEADERS  = ['Fecha','Merch','Cadena','PDV','Dirección','Hora','Descripción','Materiales','Estado','Almacén'];
+const HEADERS  = ['Fecha','Merch','Cadena','PDV','Dirección','Hora','Descripción','Materiales','Estado','Almacén','Activo','Tipo de tarea'];
 const CADENAS  = ['TAMBO','OXXO','REPSOL','PRIMAX','Otro'];
 const ESTADOS  = ['Pendiente','En camino','Completada'];
 const ALMACEN  = ['Por preparar','Preparado','Entregado'];
@@ -48,8 +48,8 @@ function getMerchs(){
 function getMaterials(){
   var m = SS().getSheetByName('MATERIALES');
   if(!m || m.getLastRow()<2) return [];
-  return m.getRange(2,1,m.getLastRow()-1,2).getValues()
-    .map(function(r){return {name:String(r[0]).trim(),unit:String(r[1]||'').trim()};}).filter(function(x){return x.name;});
+  return m.getRange(2,1,m.getLastRow()-1,3).getValues()
+    .map(function(r){return {name:String(r[0]).trim(),unit:String(r[1]||'').trim(),qty:Number(r[2])||1};}).filter(function(x){return x.name;});
 }
 function getStores(){
   var t = SS().getSheetByName('TIENDAS');
@@ -75,7 +75,8 @@ function getRows(dateStr){
     var hora = r[5]; if(hora instanceof Date) hora = Utilities.formatDate(hora, TZ(), 'HH:mm'); else hora=String(hora||'').trim();
     out.push({ row:i+2, fecha:fecha, merch:String(r[1]||'').trim(), cadena:String(r[2]||'Otro').trim(),
       pdv:String(r[3]||'').trim(), direccion:String(r[4]||'').trim(), hora:hora, descripcion:String(r[6]||'').trim(),
-      materiales:String(r[7]||'').trim(), estado:String(r[8]||'Pendiente').trim(), almacen:String(r[9]||'Por preparar').trim() });
+      materiales:String(r[7]||'').trim(), estado:String(r[8]||'Pendiente').trim(), almacen:String(r[9]||'Por preparar').trim(),
+      activo:String(r[10]||'').trim(), tipo:String(r[11]||'').trim() });
   });
   return out;
 }
@@ -91,7 +92,15 @@ function doPost(e){
     if(a==='update'){ updateRow(sh, +p.row, p); return json({ok:true}); }
     if(a==='delete'){ if(+p.row>1) sh.deleteRow(+p.row); return json({ok:true}); }
     if(a==='addMerch'){ var nm=String(p.nombre||'').trim(); if(nm){ ensureSheet('MERCHS',['Nombre']).appendRow([nm]); } return json({ok:true}); }
-    if(a==='addMaterial'){ var n=String(p.name||'').trim(); if(n){ ensureSheet('MATERIALES',['Material','Unidad']).appendRow([n,String(p.unit||'').trim()]); } return json({ok:true}); }
+    if(a==='addMaterial'){ var n=String(p.name||'').trim(); if(n){ ensureSheet('MATERIALES',['Material','Unidad','Cantidad']).appendRow([n,String(p.unit||'').trim(),Number(p.qty)||1]); } return json({ok:true}); }
+    if(a==='setMaterials'){
+      var mm=ensureSheet('MATERIALES',['Material','Unidad','Cantidad']);
+      mm.getRange(1,1,1,3).setValues([['Material','Unidad','Cantidad']]).setFontWeight('bold');
+      var last=mm.getLastRow(); if(last>1) mm.getRange(2,1,last-1,3).clearContent();
+      var rows=(p.materials||[]).map(function(x){return [x.name,x.unit||'',Number(x.qty)||1];});
+      if(rows.length) mm.getRange(2,1,rows.length,3).setValues(rows);
+      return json({ok:true, count:rows.length});
+    }
     if(a==='setStores'){
       var st=ensureSheet('TIENDAS',STORE_HEADERS);
       var last=st.getLastRow(); if(last>1) st.getRange(2,1,last-1,STORE_HEADERS.length).clearContent();
@@ -119,12 +128,12 @@ function doPost(e){
 
 function rowFrom(p){
   return [ p.fecha||todayStr(), p.merch||'', p.cadena||'Otro', p.pdv||'', p.direccion||'', p.hora||'',
-    p.descripcion||'', p.materiales||'', p.estado||'Pendiente', p.almacen||'Por preparar' ];
+    p.descripcion||'', p.materiales||'', p.estado||'Pendiente', p.almacen||'Por preparar', p.activo||'', p.tipo||'' ];
 }
 function updateRow(sh, r, p){
   if(!(r>1)) return;
   var cur = sh.getRange(r,1,1,HEADERS.length).getValues()[0];
-  var map = {fecha:0,merch:1,cadena:2,pdv:3,direccion:4,hora:5,descripcion:6,materiales:7,estado:8,almacen:9};
+  var map = {fecha:0,merch:1,cadena:2,pdv:3,direccion:4,hora:5,descripcion:6,materiales:7,estado:8,almacen:9,activo:10,tipo:11};
   for(var k in map){ if(p[k]!==undefined && p[k]!==null){ cur[map[k]] = p[k]; } }
   sh.getRange(r,1,1,HEADERS.length).setValues([cur]);
 }
@@ -143,9 +152,9 @@ function setup(){
   p.setFrozenRows(1);
   if(nueva || p.getLastRow()<2){
     p.getRange(2,1,3,HEADERS.length).setValues([
-      [today,'Ana Torres','TAMBO','Tambo Av. Larco','Av. Larco 345, Miraflores','09:30','Instalar dispenser VUSE en caja','Dispenser exhibidor x1; Cinta doble contacto x2; Jala vista x1','Pendiente','Por preparar'],
-      [today,'Ana Torres','OXXO','OXXO Benavides','Av. Benavides 1502, Miraflores','11:00','Cambiar afiches vencidos','Afiche A3 x4; Transformador eléctrico x1; Masking tape x1','Pendiente','Por preparar'],
-      [today,'Luis Ramírez','PRIMAX','Primax Javier Prado','Av. Javier Prado Este 4200, San Isidro','10:00','Instalar luminaria LED','Luminaria LED x2; Transformador eléctrico x1; Cable mellizo x3','Pendiente','Por preparar']
+      [today,'Ronald Carrera','TAMBO','Tambo Av. Larco','Av. Larco 345, Miraflores','09:30','Instalar cigarrera PIXEL 3.1','Parantes x2; Tarugos x4; Canaletas x2','Pendiente','Por preparar','Cigarrera','Instalación'],
+      [today,'Ronald Carrera','OXXO','OXXO Benavides','Av. Benavides 1502, Miraflores','11:00','Mantenimiento eléctrico','Transformador eléctrico x1; Luces LED x2','Pendiente','Por preparar','Cigarrera','Mantenimiento eléctrico'],
+      [today,'Jorge de La Cruz','PRIMAX','Primax Javier Prado','Av. Javier Prado Este 4200, San Isidro','10:00','Cambio de brazo hidráulico','Brazo hidráulico x1; Bisagra x2','Pendiente','Por preparar','Cigarrera','Cambio de brazo hidráulico']
     ]);
   }
   p.getRange(2,1,p.getMaxRows()-1,1).setNumberFormat('yyyy-mm-dd');
@@ -155,10 +164,11 @@ function setup(){
     m.getRange(2,1,3,1).setValues([['Ana Torres'],['Luis Ramírez'],['Carlos Díaz']]); m.setFrozenRows(1);
   }
   if(!s.getSheetByName('MATERIALES')){
-    var mat=s.insertSheet('MATERIALES'); mat.getRange(1,1,1,2).setValues([['Material','Unidad']]).setFontWeight('bold').setBackground('#dd8709').setFontColor('#fff');
-    mat.getRange(2,1,12,2).setValues([['Transformador eléctrico','unidad'],['Cinta doble contacto','rollo'],['Cinta de embalaje','rollo'],
-      ['Dispenser exhibidor','unidad'],['Afiche A3','unidad'],['Jala vista','unidad'],['Luminaria LED','unidad'],['Cable mellizo','metro'],
-      ['Masking tape','rollo'],['Base acrílica','unidad'],['Silicona líquida','tubo'],['Paños de limpieza','unidad']]); mat.setFrozenRows(1);
+    var mat=s.insertSheet('MATERIALES'); mat.getRange(1,1,1,3).setValues([['Material','Unidad','Cantidad']]).setFontWeight('bold').setBackground('#dd8709').setFontColor('#fff');
+    mat.getRange(2,1,14,3).setValues([['Transformador eléctrico','unidad',1],['Luces LED','unidad',2],['Brazo hidráulico','unidad',1],['Bisagra','unidad',2],
+      ['Placas','unidad',1],['Parantes','unidad',2],['Tarugos','unidad',4],['Canaletas','unidad',2],
+      ['Cigarrera PIXEL 3.1','unidad',1],['Cigarrera PIXEL 3.2','unidad',1],['Cigarrera PROSEP','unidad',1],
+      ['Dispenser mesa','unidad',1],['D. Tambo','unidad',1],['Glorificador','unidad',1]]); mat.setFrozenRows(1); mat.setColumnWidths(1,3,170);
   }
   if(!s.getSheetByName('TIENDAS')){
     var t=s.insertSheet('TIENDAS'); t.getRange(1,1,1,STORE_HEADERS.length).setValues([STORE_HEADERS]).setFontWeight('bold').setBackground('#0f9d8f').setFontColor('#fff');
