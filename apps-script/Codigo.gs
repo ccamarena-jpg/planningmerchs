@@ -10,7 +10,7 @@
  */
 
 const SHEET_ID = '1-Veqcz2BN5EceTSKEG0XkOFumzDNKr1z0onaoocMSTc';
-const HEADERS  = ['Fecha','Merch','Cadena','PDV','Dirección','Hora','Descripción','Materiales','Estado','Almacén','Activo','Tipo de tarea'];
+const HEADERS  = ['Fecha','Merch','Cadena','PDV','Dirección','Hora','Descripción','Materiales','Estado','Almacén','Activo','Tipo de tarea','Ciudad','Modelo cigarrera','Dispenser'];
 const CADENAS  = ['TAMBO','OXXO','REPSOL','PRIMAX','Otro'];
 const ESTADOS  = ['Pendiente','En camino','Completada'];
 const ALMACEN  = ['Por preparar','Preparado','Entregado'];
@@ -27,7 +27,8 @@ function doGet(e){
   try{
     var p = (e && e.parameter) || {};
     return json({ ok:true, today:todayStr(), chains:CADENAS, estados:ESTADOS, almacenStates:ALMACEN,
-      merchs:getMerchs(), materials:getMaterials(), stores:getStores(), rows:getRows(p.date||'') });
+      merchs:getMerchs(), materials:getMaterials(), stores:getStores(),
+      rows:getRows(p.all==='1' ? '' : (p.date||'')) });
   }catch(err){ return json({ ok:false, error:String(err) }); }
 }
 
@@ -76,7 +77,8 @@ function getRows(dateStr){
     out.push({ row:i+2, fecha:fecha, merch:String(r[1]||'').trim(), cadena:String(r[2]||'Otro').trim(),
       pdv:String(r[3]||'').trim(), direccion:String(r[4]||'').trim(), hora:hora, descripcion:String(r[6]||'').trim(),
       materiales:String(r[7]||'').trim(), estado:String(r[8]||'Pendiente').trim(), almacen:String(r[9]||'Por preparar').trim(),
-      activo:String(r[10]||'').trim(), tipo:String(r[11]||'').trim() });
+      activo:String(r[10]||'').trim(), tipo:String(r[11]||'').trim(),
+      ciudad:String(r[12]||'').trim(), modelo:String(r[13]||'').trim(), dispenser:String(r[14]||'').trim() });
   });
   return out;
 }
@@ -128,12 +130,13 @@ function doPost(e){
 
 function rowFrom(p){
   return [ p.fecha||todayStr(), p.merch||'', p.cadena||'Otro', p.pdv||'', p.direccion||'', p.hora||'',
-    p.descripcion||'', p.materiales||'', p.estado||'Pendiente', p.almacen||'Por preparar', p.activo||'', p.tipo||'' ];
+    p.descripcion||'', p.materiales||'', p.estado||'Pendiente', p.almacen||'Por preparar', p.activo||'', p.tipo||'',
+    p.ciudad||'', p.modelo||'', p.dispenser||'' ];
 }
 function updateRow(sh, r, p){
   if(!(r>1)) return;
   var cur = sh.getRange(r,1,1,HEADERS.length).getValues()[0];
-  var map = {fecha:0,merch:1,cadena:2,pdv:3,direccion:4,hora:5,descripcion:6,materiales:7,estado:8,almacen:9,activo:10,tipo:11};
+  var map = {fecha:0,merch:1,cadena:2,pdv:3,direccion:4,hora:5,descripcion:6,materiales:7,estado:8,almacen:9,activo:10,tipo:11,ciudad:12,modelo:13,dispenser:14};
   for(var k in map){ if(p[k]!==undefined && p[k]!==null){ cur[map[k]] = p[k]; } }
   sh.getRange(r,1,1,HEADERS.length).setValues([cur]);
 }
@@ -152,9 +155,9 @@ function setup(){
   p.setFrozenRows(1);
   if(nueva || p.getLastRow()<2){
     p.getRange(2,1,3,HEADERS.length).setValues([
-      [today,'Ronald Carrera','TAMBO','Tambo Av. Larco','Av. Larco 345, Miraflores','09:30','Instalar cigarrera PIXEL 3.1','Parantes x2; Tarugos x4; Canaletas x2','Pendiente','Por preparar','Cigarrera','Instalación'],
-      [today,'Ronald Carrera','OXXO','OXXO Benavides','Av. Benavides 1502, Miraflores','11:00','Mantenimiento eléctrico','Transformador eléctrico x1; Luces LED x2','Pendiente','Por preparar','Cigarrera','Mantenimiento eléctrico'],
-      [today,'Jorge de La Cruz','PRIMAX','Primax Javier Prado','Av. Javier Prado Este 4200, San Isidro','10:00','Cambio de brazo hidráulico','Brazo hidráulico x1; Bisagra x2','Pendiente','Por preparar','Cigarrera','Cambio de brazo hidráulico']
+      [today,'Ronald Carrera','TAMBO','Tambo Av. Larco','Av. Larco 345, Miraflores','09:30','Instalar cigarrera PIXEL 3.1','Parantes x2; Tarugos x4; Canaletas x2','Pendiente','Por preparar','Cigarrera','Instalación','Lima','Cigarrera PIXEL 3.1','No'],
+      [today,'Ronald Carrera','OXXO','OXXO Benavides','Av. Benavides 1502, Miraflores','11:00','Mantenimiento eléctrico','Transformador eléctrico x1; Luces LED x2','Pendiente','Por preparar','Cigarrera','Mantenimiento eléctrico','Lima','Cigarrera PIXEL 3.2','Dispenser mesa'],
+      [today,'Jorge de La Cruz','PRIMAX','Primax Javier Prado','Av. Javier Prado Este 4200, San Isidro','10:00','Cambio de brazo hidráulico','Brazo hidráulico x1; Bisagra x2','Pendiente','Por preparar','Cigarrera','Cambio de brazo hidráulico','Lima','Cigarrera PROSEP','No']
     ]);
   }
   p.getRange(2,1,p.getMaxRows()-1,1).setNumberFormat('yyyy-mm-dd');
@@ -187,5 +190,5 @@ function setup(){
       ['oficina@ttaudit.com','123456','oficina','Oficina']
     ]); u.setFrozenRows(1); u.setColumnWidths(1,4,180);
   }
-  return 'Listo (con USERS, columna Almacén y API de escritura/login).';
+  return 'Listo (PLANNING con Ciudad/Modelo cigarrera/Dispenser, USERS y API de escritura/login).';
 }
