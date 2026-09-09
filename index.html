@@ -148,7 +148,7 @@ var ALMACEN_SCOPE={
  'jmarinos@ttaudit.com':['Jorge Hurtado','Angel Cruz','Marco Farfán','José Benites','Freyser Carmona','Jose Mariños']
 };
 var S={session:null,loginErr:'',loginBusy:false,role:'oficina',view:'planning',whView:'merch',merch:'',date:'',
-  cityFilter:'todas',whMerch:'',whPeriod:'dia',entPeriod:'dia',
+  cityFilter:'todas',whMerch:'',whPeriod:'dia',entPeriod:'dia',pPeriod:'dia',
   gPeriod:'dia',gMerch:'',allRows:[],allLoaded:false,allLoading:false,
   rows:[],merchs:[],materials:[],stores:[],chains:CH,loading:true,error:'',modal:null,imp:null,impStores:null};
 var SESS_KEY='rutamerch_sess';
@@ -158,6 +158,7 @@ function norm(s){return String(s==null?'':s).toLowerCase().normalize('NFD').repl
 function initials(n){return String(n||'?').trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase()||'?';}
 function today(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function fmtDate(s){if(!s)return'';var a=s.split('-');var d=new Date(+a[0],+a[1]-1,+a[2]);return d.toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long'});}
+function fmtShort(s){if(!s)return'';var a=s.split('-');var d=new Date(+a[0],+a[1]-1,+a[2]);return d.toLocaleDateString('es-PE',{weekday:'short',day:'2-digit',month:'short'});}
 function stCls(e){e=norm(e);return e.indexOf('complet')>=0?'3':e.indexOf('camino')>=0?'2':'1';}
 function whCls(w){w=norm(w);return w.indexOf('entreg')>=0?'2':w.indexOf('prepar')>=0&&w.indexOf('por')<0?'1':'0';}
 function chBadge(c){return '<span class="chain '+(CH.indexOf(c)>=0?c:'')+'">'+esc(c||'PDV')+'</span>';}
@@ -273,20 +274,28 @@ function rowsDate(){return S.rows.filter(function(t){return t.fecha===S.date;});
 function mName(x){return x;}
 
 /* ---------- OFICINA: PLANNING ---------- */
+function planSort(a,b){return (a.fecha||'').localeCompare(b.fecha||'')||routeSort(a,b);}
 function viewPlanning(){
-  var list=applyCity(rowsDate());var mats=0;list.forEach(function(t){parseMats(t.materiales).forEach(function(m){mats+=m.qty;});});
+  var period=S.pPeriod||'dia';
+  var pt='<div style="margin-bottom:14px">'+periodToggle(period,'pper',[['dia','Día'],['semana','Semana'],['mes','Mes']])+'</div>';
+  if(period!=='dia'&&!S.allLoaded){loadAll();return pt+'<div class="loading"><div class="spin"></div>Cargando…</div>';}
+  var multi=period!=='dia';
+  var rng=rangeFor(period);
+  var src=multi?(S.allRows||[]).filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];}):rowsDate();
+  var list=applyCity(src);var mats=0;list.forEach(function(t){parseMats(t.materiales).forEach(function(m){mats+=m.qty;});});
+  var lbl=period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+rng[0]+' → '+rng[1]):('Mes '+rng[0].slice(0,7));
   var stats='<div class="stat-row"><div class="stat accent"><div class="n tnum">'+list.length+'</div><div class="l">Tareas</div></div>'+
     '<div class="stat"><div class="n tnum">'+new Set(list.map(function(t){return t.merch;})).size+'</div><div class="l">Merch c/ruta</div></div>'+
     '<div class="stat"><div class="n tnum">'+mats+'</div><div class="l">Materiales</div></div></div>';
-  var head='<div class="sech">'+fmtDate(S.date)+'</div>';
-  if(!list.length)return stats+head+'<div class="card"><div class="empty"><div class="ico">🗺️</div><h3>Sin tareas este día</h3><p>Crea una tarea con ＋ Tarea, o carga varias desde Excel en la pestaña Importar.</p><div style="margin-top:14px"><button class="btn primary sm" data-a="newtask">＋ Nueva tarea</button></div></div></div>';
+  var head='<div class="sech">'+lbl+'</div>';
+  if(!list.length)return pt+stats+head+'<div class="card"><div class="empty"><div class="ico">🗺️</div><h3>Sin tareas'+(multi?' en este periodo':' este día')+'</h3><p>Crea una tarea con ＋ Tarea, o carga varias desde Excel en la pestaña Importar.</p><div style="margin-top:14px"><button class="btn primary sm" data-a="newtask">＋ Nueva tarea</button></div></div></div>';
   var by={};list.forEach(function(t){(by[t.merch]=by[t.merch]||[]).push(t);});
   var g='';Object.keys(by).sort().forEach(function(mid){
-    var ts=by[mid].sort(routeSort);
+    var ts=by[mid].sort(multi?planSort:routeSort);
     g+='<div class="group"><div class="group-head"><div class="avatar">'+initials(mid)+'</div><div><div class="nm">'+esc(mid)+'</div><div class="meta">'+ts.length+' tarea'+(ts.length!==1?'s':'')+'</div></div><span class="count-pill">'+ts.length+'</span></div>';
-    ts.forEach(function(t){g+=ofcTask(t);});g+='</div>';
+    ts.forEach(function(t){g+=ofcTask(t,multi);});g+='</div>';
   });
-  return stats+head+g;
+  return pt+stats+head+g;
 }
 function assetInfo(t){
   var ciu=taskCity(t),mod=taskModelo(t),dsp=taskDisp(t);var bits=[];
@@ -295,9 +304,9 @@ function assetInfo(t){
   if(dsp&&norm(dsp)!=='no')bits.push('<span><b>Dispenser:</b> '+esc(dsp)+'</span>');
   return bits.length?'<div class="mini" style="flex-wrap:wrap">'+bits.join('')+'</div>':'';
 }
-function ofcTask(t){
+function ofcTask(t,showDate){
   return '<div class="task card s'+stCls(t.estado)+'"><div class="t-top"><div style="flex:1">'+
-    '<div style="display:flex;gap:7px;align-items:center;margin-bottom:5px;flex-wrap:wrap">'+chBadge(t.cadena)+metaChips(t)+(t.hora?'<span class="time-chip">🕒 '+esc(t.hora)+'</span>':'')+'<span class="badge st'+stCls(t.estado)+'">'+esc(t.estado)+'</span></div>'+
+    '<div style="display:flex;gap:7px;align-items:center;margin-bottom:5px;flex-wrap:wrap">'+chBadge(t.cadena)+metaChips(t)+(showDate&&t.fecha?'<span class="time-chip" style="background:var(--brand-weak);color:var(--brand-ink)">📅 '+esc(fmtShort(t.fecha))+'</span>':'')+(t.hora?'<span class="time-chip">🕒 '+esc(t.hora)+'</span>':'')+'<span class="badge st'+stCls(t.estado)+'">'+esc(t.estado)+'</span></div>'+
     '<div class="pdv">'+esc(t.pdv)+'</div>'+(t.direccion?'<div class="addr">📍 '+esc(t.direccion)+'</div>':'')+'</div></div>'+
     assetInfo(t)+
     (t.descripcion?'<div class="desc">'+esc(t.descripcion)+'</div>':'')+matChips(t.materiales)+
@@ -654,6 +663,7 @@ function click(e){
   else if(a==='city'){S.cityFilter=t.dataset.v;render();}
   else if(a==='entper'){S.entPeriod=t.dataset.v;render();}
   else if(a==='gper'){S.gPeriod=t.dataset.v;render();}
+  else if(a==='pper'){S.pPeriod=t.dataset.v;render();}
   else if(a==='whper'){S.whPeriod=t.dataset.v;render();}
   else if(a==='gday'){S.date=t.dataset.v;S.gPeriod='dia';render();}
   else if(a==='prep'){var rp=findRow(t.dataset.r);S.modal={type:'prep',row:+t.dataset.r,pdv:rp.pdv,merch:rp.merch,cadena:rp.cadena,modelo:taskModelo(rp),dispenser:taskDisp(rp),descripcion:rp.descripcion,draft:{mats:parseMats(rp.materiales)}};render();}
