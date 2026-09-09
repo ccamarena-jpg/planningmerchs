@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- build: gantt-city-entregas-v4 -->
+<!-- build: gantt-calendar-scope-v5 -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -142,8 +142,14 @@ var ROLE={oficina:{lbl:'Oficina',accent:'--brand',weak:'--brand-weak',ink:'--bra
   almacen:{lbl:'Materiales',accent:'--amber',weak:'--amber-weak',ink:'--amber-ink'}};
 /* Key Cities de la operación (editable). Lima/Callao = Lima; el resto = No Key. */
 var KEY_CITIES=['Arequipa','Trujillo','Chiclayo','Cusco','Piura'];
+/* Alcance por perfil de almacén: cada correo de almacén ve SOLO los merch listados (nombre EXACTO como está en la pestaña USERS). */
+var ALMACEN_SCOPE={
+ 'pamela@ttaudit.com':['Ronald Carrera','Jorge de La Cruz','Josue Jaramillo','Sergio Rubattini','Jeanfranco Balcazar','Rodrigo Gutiperrez','José Montes'],
+ 'jmarinos@ttaudit.com':['Jorge Hurtado','Angel Cruz','Marco Farfán','José Benites','Freyser Carmona','Jose Mariños']
+};
 var S={session:null,loginErr:'',loginBusy:false,role:'oficina',view:'planning',whView:'merch',merch:'',date:'',
-  cityFilter:'todas',whMerch:'',entPeriod:'dia',entRows:[],entLoaded:false,entLoading:false,
+  cityFilter:'todas',whMerch:'',whPeriod:'dia',entPeriod:'dia',
+  gPeriod:'dia',gMerch:'',allRows:[],allLoaded:false,allLoading:false,
   rows:[],merchs:[],materials:[],stores:[],chains:CH,loading:true,error:'',modal:null,imp:null,impStores:null};
 var SESS_KEY='rutamerch_sess';
 
@@ -167,6 +173,16 @@ function taskModelo(t){if(t&&t.modelo)return t.modelo;var s=storeByTask(t);retur
 function taskDisp(t){if(t&&t.dispenser)return t.dispenser;var s=storeByTask(t);return s?s.dispenser:'';}
 function cityGroup(c){c=norm(c);if(!c)return 'nokey';if(c.indexOf('lima')>=0||c.indexOf('callao')>=0)return 'lima';for(var i=0;i<KEY_CITIES.length;i++){if(c.indexOf(norm(KEY_CITIES[i]))>=0)return 'key';}return 'nokey';}
 function applyCity(list){if(S.cityFilter==='todas')return list;return list.filter(function(t){return cityGroup(taskCity(t))===S.cityFilter;});}
+/* ---- Alcance de almacén (Pamela / Jose Mariños) ---- */
+function almScope(){if(S.role!=='almacen'||!S.session)return null;var sc=ALMACEN_SCOPE[String(S.session.email||'').toLowerCase()];return sc?sc.map(norm):null;}
+function scopedMerchs(){var sc=almScope();return sc?S.merchs.filter(function(n){return sc.indexOf(norm(n))>=0;}):S.merchs;}
+function inScope(t){var sc=almScope();return sc?sc.indexOf(norm(t.merch))>=0:true;}
+/* ---- Periodos / calendario ---- */
+function daysList(a,b){var out=[],p=a.split('-'),q=b.split('-');var d=new Date(+p[0],+p[1]-1,+p[2]),e=new Date(+q[0],+q[1]-1,+q[2]);var guard=0;while(d<=e&&guard++<400){out.push(fmtISO(d));d.setDate(d.getDate()+1);}return out;}
+function dow2(iso){var a=iso.split('-');var d=new Date(+a[0],+a[1]-1,+a[2]);return ['Do','Lu','Ma','Mi','Ju','Vi','Sá'][d.getDay()];}
+function rangeFor(period){return period==='semana'?weekRange(S.date):period==='mes'?monthRange(S.date):[S.date,S.date];}
+function periodToggle(cur,action,opts){return '<div class="seg">'+opts.map(function(o){return '<button class="'+(cur===o[0]?'on':'')+'" data-a="'+action+'" data-v="'+o[0]+'">'+o[1]+'</button>';}).join('')+'</div>';}
+function merchPick(val,action,list){var opts='<option value=""'+(val?'':' selected')+'>Todos los merch</option>'+list.map(function(n){return '<option'+(norm(val)===norm(n)?' selected':'')+'>'+esc(n)+'</option>';}).join('');return '<span class="pick"><label>Merch</label><select data-a="'+action+'">'+opts+'</select></span>';}
 function hm(h){if(!h)return null;var m=String(h).match(/^(\d{1,2}):(\d{2})/);if(!m)return null;return (+m[1])*60+(+m[2]);}
 function fmtISO(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function weekRange(ds){var a=ds.split('-');var d=new Date(+a[0],+a[1]-1,+a[2]);var dow=(d.getDay()+6)%7;var mon=new Date(d);mon.setDate(d.getDate()-dow);var sun=new Date(mon);sun.setDate(mon.getDate()+6);return [fmtISO(mon),fmtISO(sun)];}
@@ -188,7 +204,7 @@ function load(){
 }
 function mutate(payload,msg){
   apiPost(payload).then(function(d){
-    if(d&&d.ok){if(msg)toast(msg);S.entLoaded=false;load();}
+    if(d&&d.ok){if(msg)toast(msg);S.allLoaded=false;load();}
     else toast('No se pudo guardar'+(d&&d.error?': '+d.error:''));
   }).catch(function(){toast('Error de conexión');});
 }
@@ -289,15 +305,27 @@ function ofcTask(t){
     '<button class="btn danger sm" data-a="del" data-r="'+t.row+'">Eliminar</button></div></div>';
 }
 
-/* ---------- OFICINA: GANTT (cronograma del día) ---------- */
+/* ---------- OFICINA: GANTT (cronograma día / semana / mes) ---------- */
 function viewGantt(){
-  var list=applyCity(rowsDate());
-  var head='<div class="sech">Cronograma · '+fmtDate(S.date)+'</div>';
-  if(!list.length)return head+empty('📅','Sin OTs','No hay tareas asignadas'+(S.cityFilter!=='todas'?' para este filtro':'')+' este día.');
+  if(!S.allLoaded){loadAll();return '<div class="loading"><div class="spin"></div>Cargando cronograma…</div>';}
+  var period=S.gPeriod||'dia';
+  var rng=rangeFor(period);
+  var list=(S.allRows||[]).filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];});
+  list=applyCity(list);
+  if(S.gMerch)list=list.filter(function(t){return norm(t.merch)===norm(S.gMerch);});
+  var controls='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'+
+    periodToggle(period,'gper',[['dia','Día'],['semana','Semana'],['mes','Mes']])+merchPick(S.gMerch,'gmerch',S.merchs)+'</div>';
+  var lbl=period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+rng[0]+' → '+rng[1]):('Mes '+rng[0].slice(0,7));
+  var head='<div class="sech">Cronograma · '+lbl+'</div>';
+  if(!list.length)return controls+head+empty('📅','Sin OTs','No hay tareas planificadas'+(S.cityFilter!=='todas'||S.gMerch?' para este filtro':'')+' en este periodo.');
   var done=list.filter(function(t){return stCls(t.estado)==='3';}).length;
   var stats='<div class="stat-row"><div class="stat accent"><div class="n tnum">'+list.length+'</div><div class="l">OTs</div></div>'+
     '<div class="stat"><div class="n tnum">'+new Set(list.map(function(t){return t.merch;})).size+'</div><div class="l">Merch</div></div>'+
     '<div class="stat"><div class="n tnum">'+done+'/'+list.length+'</div><div class="l">Completadas</div></div></div>';
+  var body=period==='dia'?ganttDayBody(list):ganttCalBody(list,rng,period);
+  return controls+stats+head+body;
+}
+function ganttDayBody(list){
   var times=list.map(function(t){return hm(t.hora);}).filter(function(x){return x!=null;});
   var start=7*60,end=20*60;
   if(times.length){start=Math.min(start,Math.floor(Math.min.apply(null,times)/60)*60);end=Math.max(end,Math.ceil(Math.max.apply(null,times)/60)*60);}
@@ -317,8 +345,45 @@ function viewGantt(){
       '<div style="width:118px;flex-shrink:0;padding:10px 8px;display:flex;align-items:center;gap:8px;position:sticky;left:0;background:var(--surface);z-index:3;border-right:1px solid var(--border)"><div class="avatar" style="width:28px;height:28px;font-size:12px">'+initials(mid)+'</div><div style="font-family:var(--fdisp);font-weight:700;font-size:12px;line-height:1.15">'+esc(mid)+noTimeHtml+'</div></div>'+
       '<div style="position:relative;flex:1;min-height:50px">'+ticks+chips+'</div></div>';
   }).join('');
-  return stats+head+'<div class="card" style="overflow-x:auto;padding-top:20px"><div style="min-width:700px">'+rows+'</div></div>'+
+  return '<div class="card" style="overflow-x:auto;padding-top:20px"><div style="min-width:700px">'+rows+'</div></div>'+
     '<div class="hint">Barras posicionadas por hora. <b style="color:var(--faint)">Gris</b> = pendiente · <b style="color:var(--brand)">Azul</b> = en camino · <b style="color:var(--green)">Verde</b> = completada. Desliza horizontalmente para ver toda la jornada.</div>';
+}
+function ganttCalBody(list,rng,period){
+  var days=daysList(rng[0],rng[1]);
+  var by={};list.forEach(function(t){var m=by[t.merch]||(by[t.merch]={});(m[t.fecha]||(m[t.fecha]=[])).push(t);});
+  var merchs=Object.keys(by).sort();
+  var colW=period==='mes'?46:120,nameW=120,td=today();
+  var hdr='<div style="display:flex">'+
+    '<div style="width:'+nameW+'px;flex-shrink:0;position:sticky;left:0;background:var(--surface-2);border-right:1px solid var(--border);border-bottom:1px solid var(--border);z-index:5"></div>'+
+    days.map(function(iso){var d=iso.split('-')[2];var isTd=iso===td,isSel=iso===S.date;
+      return '<button data-a="gday" data-v="'+iso+'" title="Ver cronograma de este día" style="width:'+colW+'px;flex-shrink:0;border:none;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:'+(isSel?'var(--role-weak)':'var(--surface-2)')+';padding:5px 2px;text-align:center;cursor:pointer">'+
+        '<div style="font-size:9.5px;color:var(--faint);font-family:var(--fdisp);text-transform:uppercase;letter-spacing:.03em">'+dow2(iso)+'</div>'+
+        '<div style="font-family:var(--fdisp);font-weight:800;font-size:'+(period==='mes'?'12':'14')+'px;color:'+(isTd?'var(--role)':'var(--ink)')+'">'+d+'</div></button>';
+    }).join('')+'</div>';
+  var body=merchs.map(function(mid){
+    var tot=0;days.forEach(function(iso){tot+=(by[mid][iso]||[]).length;});
+    var cells=days.map(function(iso){
+      var ts=(by[mid][iso]||[]).sort(routeSort);var mh=period==='mes'?'40':'56';
+      if(!ts.length)return '<div style="width:'+colW+'px;flex-shrink:0;border-right:1px solid var(--border);border-top:1px solid var(--border);min-height:'+mh+'px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:11px">·</div>';
+      var done=ts.filter(function(t){return stCls(t.estado)==='3';}).length;
+      var col=done===ts.length?'var(--green)':ts.some(function(t){return stCls(t.estado)==='2';})?'var(--brand)':'var(--amber)';
+      var inner;
+      if(period==='mes'){
+        inner='<div title="'+esc(ts.length+' OT · '+done+' completadas')+'" style="width:26px;height:26px;border-radius:8px;background:'+col+';color:#fff;font-family:var(--fdisp);font-weight:800;font-size:12px;display:grid;place-items:center">'+ts.length+'</div>';
+      }else{
+        inner=ts.slice(0,4).map(function(t){var st=stCls(t.estado);var c=st==='3'?'var(--green)':st==='2'?'var(--brand)':'var(--faint)';
+          return '<div title="'+esc((t.hora?t.hora+' · ':'')+t.pdv+(taskCity(t)?' · '+taskCity(t):''))+'" style="border-left:3px solid '+c+';background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:2px 5px;font-size:10px;font-family:var(--fdisp);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">'+esc((t.hora?t.hora+' ':'')+t.pdv)+'</div>';
+        }).join('')+(ts.length>4?'<div style="font-size:10px;color:var(--muted);font-weight:700">+'+(ts.length-4)+' más</div>':'');
+      }
+      return '<div style="width:'+colW+'px;flex-shrink:0;border-right:1px solid var(--border);border-top:1px solid var(--border);min-height:'+mh+'px;padding:4px;display:flex;'+(period==='mes'?'align-items:center;justify-content:center':'flex-direction:column')+'">'+inner+'</div>';
+    }).join('');
+    return '<div style="display:flex">'+
+      '<div style="width:'+nameW+'px;flex-shrink:0;position:sticky;left:0;background:var(--surface);border-right:1px solid var(--border);border-top:1px solid var(--border);z-index:2;padding:8px;display:flex;align-items:center;gap:7px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+initials(mid)+'</div><div style="min-width:0"><div style="font-family:var(--fdisp);font-weight:700;font-size:11.5px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(mid)+'</div><div style="font-size:10px;color:var(--muted)">'+tot+' OT</div></div></div>'+
+      cells+'</div>';
+  }).join('');
+  var minW=nameW+days.length*colW;
+  return '<div class="card" style="overflow-x:auto"><div style="min-width:'+minW+'px">'+hdr+body+'</div></div>'+
+    '<div class="hint">Toca un día del encabezado para abrir su cronograma por hora. '+(period==='mes'?'El número = OTs de ese día · <b style="color:var(--green)">verde</b>=todas completadas, <b style="color:var(--brand)">azul</b>=en curso, <b style="color:var(--amber-ink)">ámbar</b>=pendientes.':'Cada barra es una OT (color por estado). Desliza para ver toda la semana.')+'</div>';
 }
 
 /* ---------- OFICINA: IMPORTAR ---------- */
@@ -424,32 +489,35 @@ function merchTask(t,n){
 }
 
 /* ---------- ALMACEN (Pamela) ---------- */
-function loadEntregas(){
-  if(S.entLoading)return;S.entLoading=true;
+function loadAll(){
+  if(S.allLoading)return;S.allLoading=true;
   fetch(API+'?all=1&_cb='+Date.now()).then(function(r){return r.text();}).then(function(t){
-    var d=JSON.parse(t);S.entRows=(d&&d.rows)||[];S.entLoaded=true;S.entLoading=false;render();
-  }).catch(function(){S.entLoaded=true;S.entLoading=false;S.entRows=[];render();});
+    var d=JSON.parse(t);S.allRows=(d&&d.rows)||[];S.allLoaded=true;S.allLoading=false;render();
+  }).catch(function(){S.allLoaded=true;S.allLoading=false;S.allRows=[];render();});
 }
-function merchFilterCtl(){
-  var opts='<option value="">Todos los merch</option>'+S.merchs.map(function(n){return '<option'+(S.whMerch===n?' selected':'')+'>'+esc(n)+'</option>';}).join('');
-  return '<span class="pick" style="margin-bottom:12px"><label>Merch</label><select data-a="whmerch">'+opts+'</select></span>';
-}
+function merchFilterCtl(){return '<div style="margin-bottom:12px">'+merchPick(S.whMerch,'whmerch',scopedMerchs())+'</div>';}
 function viewAlmacen(){
   var seg='<div class="seg" style="margin-bottom:12px">'+
     [['merch','Por merch'],['consolidado','Consolidado'],['entregas','Entregas']].map(function(o){return '<button class="'+(S.whView===o[0]?'on':'')+'" data-a="whtab" data-v="'+o[0]+'">'+o[1]+'</button>';}).join('')+'</div>';
   if(S.whView==='entregas'){
-    if(!S.entLoaded){loadEntregas();return seg+'<div class="loading"><div class="spin"></div>Cargando entregas…</div>';}
+    if(!S.allLoaded){loadAll();return seg+'<div class="loading"><div class="spin"></div>Cargando entregas…</div>';}
     return seg+viewEntregas();
   }
-  var list=rowsDate().filter(function(t){return t.materiales;});
+  var period=S.whPeriod||'dia';
+  var pt=periodToggle(period,'whper',[['dia','Día'],['semana','Semana'],['mes','Mes']]);
+  if(period!=='dia'&&!S.allLoaded){loadAll();return seg+'<div style="margin-bottom:12px">'+pt+'</div><div class="loading"><div class="spin"></div>Cargando…</div>';}
+  var rng=rangeFor(period);
+  var src=period==='dia'?rowsDate():(S.allRows||[]).filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];});
+  var list=src.filter(function(t){return t.materiales;}).filter(inScope);
   if(S.whMerch)list=list.filter(function(t){return norm(t.merch)===norm(S.whMerch);});
-  var filter=merchFilterCtl();
-  if(!list.length)return seg+filter+empty('📦','Nada que preparar','No hay materiales solicitados'+(S.whMerch?' para '+esc(S.whMerch):'')+' para '+fmtDate(S.date)+'.');
+  var controls='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'+pt+merchPick(S.whMerch,'whmerch',scopedMerchs())+'</div>';
+  var lbl=period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+rng[0]+' → '+rng[1]):('Mes '+rng[0].slice(0,7));
+  if(!list.length)return seg+controls+empty('📦','Nada que preparar','No hay materiales solicitados'+(S.whMerch?' para '+esc(S.whMerch):'')+' en '+lbl+'.');
   var units=0;list.forEach(function(t){parseMats(t.materiales).forEach(function(m){units+=m.qty;});});
   var stats='<div class="stat-row"><div class="stat accent"><div class="n tnum">'+units+'</div><div class="l">Unidades</div></div>'+
     '<div class="stat"><div class="n tnum">'+new Set(list.map(function(t){return t.merch;})).size+'</div><div class="l">Merch</div></div>'+
     '<div class="stat"><div class="n tnum">'+list.filter(function(t){return whCls(t.almacen)==='2';}).length+'/'+list.length+'</div><div class="l">Entregados</div></div></div>';
-  return stats+seg+filter+(S.whView==='consolidado'?whCons(list):whByMerch(list));
+  return stats+seg+controls+'<div class="sech">'+lbl+'</div>'+(S.whView==='consolidado'?whCons(list):whByMerch(list));
 }
 function whCons(list){
   var agg={};list.forEach(function(t){parseMats(t.materiales).forEach(function(m){agg[m.name]=(agg[m.name]||0)+m.qty;});});
@@ -477,13 +545,16 @@ function whByMerch(list){
 /* ---------- ALMACEN: ENTREGAS (control por día / semana / mes) ---------- */
 function viewEntregas(){
   var period=S.entPeriod||'dia';
-  var rng=period==='dia'?[S.date,S.date]:period==='semana'?weekRange(S.date):monthRange(S.date);
-  var toggle='<div class="seg" style="margin-bottom:12px">'+[['dia','Día'],['semana','Semana'],['mes','Mes']].map(function(o){return '<button class="'+(period===o[0]?'on':'')+'" data-a="entper" data-v="'+o[0]+'">'+o[1]+'</button>';}).join('')+'</div>';
-  var rangeLbl='<div class="sech">'+(period==='dia'?'Entregado · '+fmtDate(S.date):period==='semana'?'Semana '+rng[0]+' → '+rng[1]:'Mes '+rng[0].slice(0,7))+'</div>';
-  var rows=(S.entRows||[]).filter(function(t){return whCls(t.almacen)==='2'&&t.materiales&&t.fecha>=rng[0]&&t.fecha<=rng[1];});
+  var isTodo=period==='todo';
+  var rng=rangeFor(period==='todo'?'dia':period);
+  var toggle='<div class="seg" style="margin-bottom:12px">'+[['dia','Día'],['semana','Semana'],['mes','Mes'],['todo','Todo']].map(function(o){return '<button class="'+(period===o[0]?'on':'')+'" data-a="entper" data-v="'+o[0]+'">'+o[1]+'</button>';}).join('')+'</div>';
+  var rangeLbl='<div class="sech">'+(isTodo?'Entregado · histórico (todo)':period==='dia'?'Entregado · '+fmtDate(S.date):period==='semana'?'Semana '+rng[0]+' → '+rng[1]:'Mes '+rng[0].slice(0,7))+'</div>';
+  var rows=(S.allRows||[]).filter(function(t){return whCls(t.almacen)==='2'&&t.materiales;});
+  if(!isTodo)rows=rows.filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];});
+  rows=rows.filter(inScope);
   if(S.whMerch)rows=rows.filter(function(t){return norm(t.merch)===norm(S.whMerch);});
-  var filter=merchFilterCtl();
-  if(!rows.length)return toggle+filter+rangeLbl+empty('📦','Sin entregas','No hay materiales marcados como <b>Entregado</b> en este periodo.');
+  var filter='<div style="margin-bottom:12px">'+merchPick(S.whMerch,'whmerch',scopedMerchs())+'</div>';
+  if(!rows.length)return toggle+filter+rangeLbl+empty('📦','Sin entregas','No hay materiales marcados como <b>Entregado</b>'+(isTodo?'':' en este periodo')+'. Marca las tarjetas como <b>✅ Entregado</b> en la pestaña <b>Por merch</b> y aparecerán aquí consolidadas.');
   var units=0,byMerch={},agg={};
   rows.forEach(function(t){parseMats(t.materiales).forEach(function(m){
     units+=m.qty;agg[m.name]=(agg[m.name]||0)+m.qty;
@@ -559,6 +630,7 @@ function wire(){
   f=q('[data-a="savetask"]');if(f)f.addEventListener('submit',onSaveTask);
   f=q('[data-a="saveprep"]');if(f)f.addEventListener('submit',onSavePrep);
   var wm=q('[data-a="whmerch"]');if(wm)wm.addEventListener('change',function(e){S.whMerch=e.target.value;render();});
+  var gmc=q('[data-a="gmerch"]');if(gmc)gmc.addEventListener('change',function(e){S.gMerch=e.target.value;render();});
   f=q('[data-a="savemerch"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var v=e.target.nombre.value.trim();if(v)mutate({action:'addMerch',nombre:v},'Merch agregado');closeM();});
   f=q('[data-a="savemat"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var n=e.target.name.value.trim();if(n)mutate({action:'addMaterial',name:n,unit:e.target.unit.value.trim(),qty:Number(e.target.qty.value)||1},'Material agregado');closeM();});
   var im=q('[data-a="impfile"]');if(im)im.addEventListener('change',onImp);
@@ -581,6 +653,9 @@ function click(e){
   else if(a==='ofctab'){S.view=t.dataset.v;S.imp=null;S.impStores=null;render();}
   else if(a==='city'){S.cityFilter=t.dataset.v;render();}
   else if(a==='entper'){S.entPeriod=t.dataset.v;render();}
+  else if(a==='gper'){S.gPeriod=t.dataset.v;render();}
+  else if(a==='whper'){S.whPeriod=t.dataset.v;render();}
+  else if(a==='gday'){S.date=t.dataset.v;S.gPeriod='dia';render();}
   else if(a==='prep'){var rp=findRow(t.dataset.r);S.modal={type:'prep',row:+t.dataset.r,pdv:rp.pdv,merch:rp.merch,cadena:rp.cadena,modelo:taskModelo(rp),dispenser:taskDisp(rp),descripcion:rp.descripcion,draft:{mats:parseMats(rp.materiales)}};render();}
   else if(a==='tplStores'){downloadTplStores();}
   else if(a==='impStoresOk'){doImportStores();}
