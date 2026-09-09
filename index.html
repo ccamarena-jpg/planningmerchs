@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- build: gantt-calendar-scope-v5 -->
+<!-- build: responsive-daterange-v6 -->
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -116,6 +116,30 @@
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--ground);padding:12px 20px;border-radius:12px;font-weight:600;font-size:14px;box-shadow:var(--shadow-lg);z-index:80;opacity:0;transition:.25s;pointer-events:none;max-width:90vw;text-align:center}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   @media(prefers-reduced-motion:reduce){.spin{animation:none}*{transition:none!important}}
+  /* ============ VISTA PC (escritorio): aprovecha el ancho. El celular queda igual. ============ */
+  @media (min-width:900px){
+    .wrap{max-width:1180px}
+    body{font-size:15px}
+    .body{padding:22px 30px 64px}
+    .topbar{padding:14px 30px}
+    .subbar{top:64px;padding:12px 30px}
+    .brand{font-size:19px}
+    /* Las tareas de cada merch fluyen en columnas y usan todo el ancho */
+    .group{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+    .group-head{grid-column:1/-1;margin:0 2px 4px}
+    .task{margin-bottom:0}
+    .stat .n{font-size:28px}
+    .stat-row{gap:14px}
+    /* Tiendas / listas de tarjetas sueltas también en cuadrícula */
+    .store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+    .store-grid .task{margin-bottom:0}
+    .sheet{max-width:640px}
+  }
+  @media (min-width:1400px){
+    .wrap{max-width:1340px}
+    .group{grid-template-columns:repeat(auto-fill,minmax(360px,1fr))}
+    .store-grid{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+  }
 </style>
 </head>
 <body>
@@ -148,7 +172,7 @@ var ALMACEN_SCOPE={
  'jmarinos@ttaudit.com':['Jorge Hurtado','Angel Cruz','Marco Farfán','José Benites','Freyser Carmona','Jose Mariños']
 };
 var S={session:null,loginErr:'',loginBusy:false,role:'oficina',view:'planning',whView:'merch',merch:'',date:'',
-  cityFilter:'todas',whMerch:'',whPeriod:'dia',entPeriod:'dia',pPeriod:'dia',
+  cityFilter:'todas',whMerch:'',whPeriod:'dia',entPeriod:'dia',pPeriod:'dia',dFrom:'',dTo:'',
   gPeriod:'dia',gMerch:'',allRows:[],allLoaded:false,allLoading:false,
   rows:[],merchs:[],materials:[],stores:[],chains:CH,loading:true,error:'',modal:null,imp:null,impStores:null};
 var SESS_KEY='rutamerch_sess';
@@ -181,8 +205,20 @@ function inScope(t){var sc=almScope();return sc?sc.indexOf(norm(t.merch))>=0:tru
 /* ---- Periodos / calendario ---- */
 function daysList(a,b){var out=[],p=a.split('-'),q=b.split('-');var d=new Date(+p[0],+p[1]-1,+p[2]),e=new Date(+q[0],+q[1]-1,+q[2]);var guard=0;while(d<=e&&guard++<400){out.push(fmtISO(d));d.setDate(d.getDate()+1);}return out;}
 function dow2(iso){var a=iso.split('-');var d=new Date(+a[0],+a[1]-1,+a[2]);return ['Do','Lu','Ma','Mi','Ju','Vi','Sá'][d.getDay()];}
-function rangeFor(period){return period==='semana'?weekRange(S.date):period==='mes'?monthRange(S.date):[S.date,S.date];}
+function rangeFor(period){
+  if(period==='rango'){var f=S.dFrom||S.date,t=S.dTo||S.date;return f<=t?[f,t]:[t,f];}
+  return period==='semana'?weekRange(S.date):period==='mes'?monthRange(S.date):[S.date,S.date];
+}
+function rangeLabel(period){var r=rangeFor(period);return period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+r[0]+' → '+r[1]):period==='mes'?('Mes '+r[0].slice(0,7)):('Rango '+r[0]+' → '+r[1]);}
 function periodToggle(cur,action,opts){return '<div class="seg">'+opts.map(function(o){return '<button class="'+(cur===o[0]?'on':'')+'" data-a="'+action+'" data-v="'+o[0]+'">'+o[1]+'</button>';}).join('')+'</div>';}
+/* Presets estándar de fecha + opción Rango (elige varias fechas: Desde–Hasta) */
+var PERIODS=[['dia','Día'],['semana','Semana'],['mes','Mes'],['rango','Rango']];
+function rangeControls(period){
+  if(period!=='rango')return '';
+  return '<span class="pick"><label>Desde</label><input type="date" value="'+(S.dFrom||S.date)+'" data-a="dfrom"></span>'+
+         '<span class="pick"><label>Hasta</label><input type="date" value="'+(S.dTo||S.date)+'" data-a="dto"></span>';
+}
+function dateControls(period,action){return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'+periodToggle(period,action,PERIODS)+rangeControls(period)+'</div>';}
 function merchPick(val,action,list){var opts='<option value=""'+(val?'':' selected')+'>Todos los merch</option>'+list.map(function(n){return '<option'+(norm(val)===norm(n)?' selected':'')+'>'+esc(n)+'</option>';}).join('');return '<span class="pick"><label>Merch</label><select data-a="'+action+'">'+opts+'</select></span>';}
 function hm(h){if(!h)return null;var m=String(h).match(/^(\d{1,2}):(\d{2})/);if(!m)return null;return (+m[1])*60+(+m[2]);}
 function fmtISO(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -277,13 +313,13 @@ function mName(x){return x;}
 function planSort(a,b){return (a.fecha||'').localeCompare(b.fecha||'')||routeSort(a,b);}
 function viewPlanning(){
   var period=S.pPeriod||'dia';
-  var pt='<div style="margin-bottom:14px">'+periodToggle(period,'pper',[['dia','Día'],['semana','Semana'],['mes','Mes']])+'</div>';
+  var pt=dateControls(period,'pper');
   if(period!=='dia'&&!S.allLoaded){loadAll();return pt+'<div class="loading"><div class="spin"></div>Cargando…</div>';}
   var multi=period!=='dia';
   var rng=rangeFor(period);
   var src=multi?(S.allRows||[]).filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];}):rowsDate();
   var list=applyCity(src);var mats=0;list.forEach(function(t){parseMats(t.materiales).forEach(function(m){mats+=m.qty;});});
-  var lbl=period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+rng[0]+' → '+rng[1]):('Mes '+rng[0].slice(0,7));
+  var lbl=rangeLabel(period);
   var stats='<div class="stat-row"><div class="stat accent"><div class="n tnum">'+list.length+'</div><div class="l">Tareas</div></div>'+
     '<div class="stat"><div class="n tnum">'+new Set(list.map(function(t){return t.merch;})).size+'</div><div class="l">Merch c/ruta</div></div>'+
     '<div class="stat"><div class="n tnum">'+mats+'</div><div class="l">Materiales</div></div></div>';
@@ -323,8 +359,8 @@ function viewGantt(){
   list=applyCity(list);
   if(S.gMerch)list=list.filter(function(t){return norm(t.merch)===norm(S.gMerch);});
   var controls='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'+
-    periodToggle(period,'gper',[['dia','Día'],['semana','Semana'],['mes','Mes']])+merchPick(S.gMerch,'gmerch',S.merchs)+'</div>';
-  var lbl=period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+rng[0]+' → '+rng[1]):('Mes '+rng[0].slice(0,7));
+    periodToggle(period,'gper',PERIODS)+rangeControls(period)+merchPick(S.gMerch,'gmerch',S.merchs)+'</div>';
+  var lbl=rangeLabel(period);
   var head='<div class="sech">Cronograma · '+lbl+'</div>';
   if(!list.length)return controls+head+empty('📅','Sin OTs','No hay tareas planificadas'+(S.cityFilter!=='todas'||S.gMerch?' para este filtro':'')+' en este periodo.');
   var done=list.filter(function(t){return stCls(t.estado)==='3';}).length;
@@ -359,32 +395,33 @@ function ganttDayBody(list){
 }
 function ganttCalBody(list,rng,period){
   var days=daysList(rng[0],rng[1]);
+  var compact=period==='mes'||days.length>10;
   var by={};list.forEach(function(t){var m=by[t.merch]||(by[t.merch]={});(m[t.fecha]||(m[t.fecha]=[])).push(t);});
   var merchs=Object.keys(by).sort();
-  var colW=period==='mes'?46:120,nameW=120,td=today();
+  var colW=compact?46:120,nameW=120,td=today();
   var hdr='<div style="display:flex">'+
     '<div style="width:'+nameW+'px;flex-shrink:0;position:sticky;left:0;background:var(--surface-2);border-right:1px solid var(--border);border-bottom:1px solid var(--border);z-index:5"></div>'+
     days.map(function(iso){var d=iso.split('-')[2];var isTd=iso===td,isSel=iso===S.date;
       return '<button data-a="gday" data-v="'+iso+'" title="Ver cronograma de este día" style="width:'+colW+'px;flex-shrink:0;border:none;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:'+(isSel?'var(--role-weak)':'var(--surface-2)')+';padding:5px 2px;text-align:center;cursor:pointer">'+
         '<div style="font-size:9.5px;color:var(--faint);font-family:var(--fdisp);text-transform:uppercase;letter-spacing:.03em">'+dow2(iso)+'</div>'+
-        '<div style="font-family:var(--fdisp);font-weight:800;font-size:'+(period==='mes'?'12':'14')+'px;color:'+(isTd?'var(--role)':'var(--ink)')+'">'+d+'</div></button>';
+        '<div style="font-family:var(--fdisp);font-weight:800;font-size:'+(compact?'12':'14')+'px;color:'+(isTd?'var(--role)':'var(--ink)')+'">'+d+'</div></button>';
     }).join('')+'</div>';
   var body=merchs.map(function(mid){
     var tot=0;days.forEach(function(iso){tot+=(by[mid][iso]||[]).length;});
     var cells=days.map(function(iso){
-      var ts=(by[mid][iso]||[]).sort(routeSort);var mh=period==='mes'?'40':'56';
+      var ts=(by[mid][iso]||[]).sort(routeSort);var mh=compact?'40':'56';
       if(!ts.length)return '<div style="width:'+colW+'px;flex-shrink:0;border-right:1px solid var(--border);border-top:1px solid var(--border);min-height:'+mh+'px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:11px">·</div>';
       var done=ts.filter(function(t){return stCls(t.estado)==='3';}).length;
       var col=done===ts.length?'var(--green)':ts.some(function(t){return stCls(t.estado)==='2';})?'var(--brand)':'var(--amber)';
       var inner;
-      if(period==='mes'){
+      if(compact){
         inner='<div title="'+esc(ts.length+' OT · '+done+' completadas')+'" style="width:26px;height:26px;border-radius:8px;background:'+col+';color:#fff;font-family:var(--fdisp);font-weight:800;font-size:12px;display:grid;place-items:center">'+ts.length+'</div>';
       }else{
         inner=ts.slice(0,4).map(function(t){var st=stCls(t.estado);var c=st==='3'?'var(--green)':st==='2'?'var(--brand)':'var(--faint)';
           return '<div title="'+esc((t.hora?t.hora+' · ':'')+t.pdv+(taskCity(t)?' · '+taskCity(t):''))+'" style="border-left:3px solid '+c+';background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:2px 5px;font-size:10px;font-family:var(--fdisp);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">'+esc((t.hora?t.hora+' ':'')+t.pdv)+'</div>';
         }).join('')+(ts.length>4?'<div style="font-size:10px;color:var(--muted);font-weight:700">+'+(ts.length-4)+' más</div>':'');
       }
-      return '<div style="width:'+colW+'px;flex-shrink:0;border-right:1px solid var(--border);border-top:1px solid var(--border);min-height:'+mh+'px;padding:4px;display:flex;'+(period==='mes'?'align-items:center;justify-content:center':'flex-direction:column')+'">'+inner+'</div>';
+      return '<div style="width:'+colW+'px;flex-shrink:0;border-right:1px solid var(--border);border-top:1px solid var(--border);min-height:'+mh+'px;padding:4px;display:flex;'+(compact?'align-items:center;justify-content:center':'flex-direction:column')+'">'+inner+'</div>';
     }).join('');
     return '<div style="display:flex">'+
       '<div style="width:'+nameW+'px;flex-shrink:0;position:sticky;left:0;background:var(--surface);border-right:1px solid var(--border);border-top:1px solid var(--border);z-index:2;padding:8px;display:flex;align-items:center;gap:7px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+initials(mid)+'</div><div style="min-width:0"><div style="font-family:var(--fdisp);font-weight:700;font-size:11.5px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(mid)+'</div><div style="font-size:10px;color:var(--muted)">'+tot+' OT</div></div></div>'+
@@ -392,7 +429,7 @@ function ganttCalBody(list,rng,period){
   }).join('');
   var minW=nameW+days.length*colW;
   return '<div class="card" style="overflow-x:auto"><div style="min-width:'+minW+'px">'+hdr+body+'</div></div>'+
-    '<div class="hint">Toca un día del encabezado para abrir su cronograma por hora. '+(period==='mes'?'El número = OTs de ese día · <b style="color:var(--green)">verde</b>=todas completadas, <b style="color:var(--brand)">azul</b>=en curso, <b style="color:var(--amber-ink)">ámbar</b>=pendientes.':'Cada barra es una OT (color por estado). Desliza para ver toda la semana.')+'</div>';
+    '<div class="hint">Toca un día del encabezado para abrir su cronograma por hora. '+(compact?'El número = OTs de ese día · <b style="color:var(--green)">verde</b>=todas completadas, <b style="color:var(--brand)">azul</b>=en curso, <b style="color:var(--amber-ink)">ámbar</b>=pendientes.':'Cada barra es una OT (color por estado). Desliza para ver todo el periodo.')+'</div>';
 }
 
 /* ---------- OFICINA: IMPORTAR ---------- */
@@ -434,7 +471,7 @@ function viewTiendas(){
     (im&&im.error?'<div class="banner" style="margin-top:12px;background:var(--red-weak);color:var(--red)">'+esc(im.error)+'</div>':'')+'</div>';
   if(!S.stores.length)return stats+loader+empty('🏪','Sin tiendas cargadas','Descarga la plantilla, llénala con tus POS y súbela. Luego podrás elegir la tienda al crear tareas.');
   var list=S.stores.slice(0,400).map(storeCard).join('');
-  return stats+loader+'<div class="sech">Base de tiendas'+(S.stores.length>400?' (mostrando 400 de '+S.stores.length+')':'')+'</div>'+list;
+  return stats+loader+'<div class="sech">Base de tiendas'+(S.stores.length>400?' (mostrando 400 de '+S.stores.length+')':'')+'</div><div class="store-grid">'+list+'</div>';
 }
 function storeCard(s){
   var maps=(s.lat&&s.lng)?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.lat+','+s.lng):(s.direccion?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.direccion):null);
@@ -513,14 +550,13 @@ function viewAlmacen(){
     return seg+viewEntregas();
   }
   var period=S.whPeriod||'dia';
-  var pt=periodToggle(period,'whper',[['dia','Día'],['semana','Semana'],['mes','Mes']]);
-  if(period!=='dia'&&!S.allLoaded){loadAll();return seg+'<div style="margin-bottom:12px">'+pt+'</div><div class="loading"><div class="spin"></div>Cargando…</div>';}
+  if(period!=='dia'&&!S.allLoaded){loadAll();return seg+dateControls(period,'whper')+'<div class="loading"><div class="spin"></div>Cargando…</div>';}
   var rng=rangeFor(period);
   var src=period==='dia'?rowsDate():(S.allRows||[]).filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];});
   var list=src.filter(function(t){return t.materiales;}).filter(inScope);
   if(S.whMerch)list=list.filter(function(t){return norm(t.merch)===norm(S.whMerch);});
-  var controls='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'+pt+merchPick(S.whMerch,'whmerch',scopedMerchs())+'</div>';
-  var lbl=period==='dia'?fmtDate(S.date):period==='semana'?('Semana '+rng[0]+' → '+rng[1]):('Mes '+rng[0].slice(0,7));
+  var controls='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'+periodToggle(period,'whper',PERIODS)+rangeControls(period)+merchPick(S.whMerch,'whmerch',scopedMerchs())+'</div>';
+  var lbl=rangeLabel(period);
   if(!list.length)return seg+controls+empty('📦','Nada que preparar','No hay materiales solicitados'+(S.whMerch?' para '+esc(S.whMerch):'')+' en '+lbl+'.');
   var units=0;list.forEach(function(t){parseMats(t.materiales).forEach(function(m){units+=m.qty;});});
   var stats='<div class="stat-row"><div class="stat accent"><div class="n tnum">'+units+'</div><div class="l">Unidades</div></div>'+
@@ -556,8 +592,8 @@ function viewEntregas(){
   var period=S.entPeriod||'dia';
   var isTodo=period==='todo';
   var rng=rangeFor(period==='todo'?'dia':period);
-  var toggle='<div class="seg" style="margin-bottom:12px">'+[['dia','Día'],['semana','Semana'],['mes','Mes'],['todo','Todo']].map(function(o){return '<button class="'+(period===o[0]?'on':'')+'" data-a="entper" data-v="'+o[0]+'">'+o[1]+'</button>';}).join('')+'</div>';
-  var rangeLbl='<div class="sech">'+(isTodo?'Entregado · histórico (todo)':period==='dia'?'Entregado · '+fmtDate(S.date):period==='semana'?'Semana '+rng[0]+' → '+rng[1]:'Mes '+rng[0].slice(0,7))+'</div>';
+  var toggle='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'+periodToggle(period,'entper',[['dia','Día'],['semana','Semana'],['mes','Mes'],['rango','Rango'],['todo','Todo']])+rangeControls(period)+'</div>';
+  var rangeLbl='<div class="sech">'+(isTodo?'Entregado · histórico (todo)':'Entregado · '+rangeLabel(period))+'</div>';
   var rows=(S.allRows||[]).filter(function(t){return whCls(t.almacen)==='2'&&t.materiales;});
   if(!isTodo)rows=rows.filter(function(t){return t.fecha>=rng[0]&&t.fecha<=rng[1];});
   rows=rows.filter(inScope);
@@ -640,6 +676,8 @@ function wire(){
   f=q('[data-a="saveprep"]');if(f)f.addEventListener('submit',onSavePrep);
   var wm=q('[data-a="whmerch"]');if(wm)wm.addEventListener('change',function(e){S.whMerch=e.target.value;render();});
   var gmc=q('[data-a="gmerch"]');if(gmc)gmc.addEventListener('change',function(e){S.gMerch=e.target.value;render();});
+  var df=q('[data-a="dfrom"]');if(df)df.addEventListener('change',function(e){S.dFrom=e.target.value;render();});
+  var dt=q('[data-a="dto"]');if(dt)dt.addEventListener('change',function(e){S.dTo=e.target.value;render();});
   f=q('[data-a="savemerch"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var v=e.target.nombre.value.trim();if(v)mutate({action:'addMerch',nombre:v},'Merch agregado');closeM();});
   f=q('[data-a="savemat"]');if(f)f.addEventListener('submit',function(e){e.preventDefault();var n=e.target.name.value.trim();if(n)mutate({action:'addMaterial',name:n,unit:e.target.unit.value.trim(),qty:Number(e.target.qty.value)||1},'Material agregado');closeM();});
   var im=q('[data-a="impfile"]');if(im)im.addEventListener('change',onImp);
